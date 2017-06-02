@@ -174,10 +174,11 @@ def get_word2vec_features(sent_annotations, word2vec_model):
 				
 def extract_features(corpus, stanford_annotations, stanford_parse_trees, args):
 	features = {}
-	print 'Loading word2vec model...'
-	start_time = time.time()
-	word2vec_model = gensim.models.KeyedVectors.load_word2vec_format(args.word2vec_pretrained_model, binary=True)
-	print time.time() - start_time
+	if args.word2vec:
+		print 'Loading word2vec model...'
+		start_time = time.time()
+		word2vec_model = gensim.models.KeyedVectors.load_word2vec_format(args.word2vec_pretrained_model, binary=True)
+		print time.time() - start_time
 	for i in range(len(corpus)):
 		id, sentence, rating = corpus[i]
 		# print i
@@ -189,41 +190,56 @@ def extract_features(corpus, stanford_annotations, stanford_parse_trees, args):
 			break
 		words = sentence.split()
 		
+		feature_set = []
+		
 		#case features
 		if args.case:
 			case_features = get_case_features(sent_annotations, sentence)
+			feature_set += case_features
 		
 		# dependency features
 		if args.dependency:
 			dependency_tuples = get_dependency_tuples(sent_annotations)
+		else:
+			dependency_tuple = None
 		
 		# entity features
 		if args.entity:
 			entity_features = get_entity_features(sent_annotations)
+			feature_set += entity_features
 		
 		# lexical features
 		if args.lexical:
 			lexical_features = get_lexical_features(words)
+			feature_set += lexical_features
 		
 		# ngram features
 		if args.ngram:
 			unigrams, bigrams, trigrams = get_ngrams(sentence)
+		else:
+			unigrams, bigrams, trigrams = None, None, None
 				
 		# parse features
 		if args.parse:
-			avg_depth_feature, productions = get_parse_features(stanford_parse_trees[id])
+			avg_depth_feature, productions = get_parse_features(stanford_parse_trees[id], sent_annotations)
+			feature_set += avg_depth_feature
+		else:
+			productions = None
 		
 		# POS features
 		if args.POS:
 			pos_features = get_POS_features(sent_annotations)
+			feature_set += pos_features
 		
 		# punctuation features
 		if args.punctuation:
 			punctuation_features = get_punctuation_features(sentence)
+			feature_set += punctuation_features
 		
 		# readability features
 		if args.readability:
 			readability_features = get_readability_features(sentence, words)
+			feature_set += readability_features
 		
 		# subjectivity features
 		
@@ -233,31 +249,42 @@ def extract_features(corpus, stanford_annotations, stanford_parse_trees, args):
 		# word2vec features
 		if args.word2vec:
 			word2vec_features = get_word2vec_features(sent_annotations, word2vec_model)
+			feature_set = numpy.concatenate((feature_set, word2vec_features), axis=0)
 		
-		feature_set = case_features + entity_features + lexical_features + \
-				pos_features + punctuation_features + readability_features + avg_depth_feature
-		feature_set = numpy.concatenate((feature_set, word2vec_features), axis=0)
+		# feature_set = case_features + entity_features + lexical_features + \
+				# pos_features + punctuation_features + readability_features + avg_depth_feature
+		# feature_set = numpy.concatenate((feature_set, word2vec_features), axis=0)
 		features[id] = [feature_set, dependency_tuples, unigrams, bigrams, trigrams, productions]
 			
 	for id in features.keys():
 		[feature_set, dependency_tuples, unigrams, bigrams, trigrams, productions] = features[id]
-		dependency_tuples_feature = [0]*len(DEPENDENCY_TUPLE_SET)
-		for dependency_tuple in dependency_tuples:
-			dependency_tuples_feature[DEPENDENCY_TUPLE_SET.index(dependency_tuple)] = 1
-		unigram_feature = [0]*len(UNIGRAM_SET)
-		for unigram in unigrams:
-			unigram_feature[UNIGRAM_SET.index(unigram)] = 1
-		bigram_feature = [0]*len(BIGRAM_SET)
-		for bigram in bigrams:
-			bigram_feature[BIGRAM_SET.index(bigram)] = 1
-		trigram_feature = [0]*len(TRIGRAM_SET)
-		for trigram in trigrams:
-			trigram_feature[TRIGRAM_SET.index(trigram)] = 1
-		parse_feature = [0]*len(LEXPARSE_PRODUCTION_RULE_SET)
-		for production in productions:
-			parse_feature[LEXPARSE_PRODUCTION_RULE_SET.index(production)] = 1
-		features[id] = numpy.concatenate((feature_set, dependency_tuples_feature, unigram_feature, bigram_feature, trigram_feature, parse_feature), axis=0)
-		
+		features[id] = feature_set
+		if args.dependency:
+			dependency_tuples_feature = [0]*len(DEPENDENCY_TUPLE_SET)
+			for dependency_tuple in dependency_tuples:
+				dependency_tuples_feature[DEPENDENCY_TUPLE_SET.index(dependency_tuple)] = 1
+			features[id] = numpy.concatenate((features[id], dependency_tuples_feature))
+			
+		if args.ngram:
+			unigram_feature = [0]*len(UNIGRAM_SET)
+			for unigram in unigrams:
+				unigram_feature[UNIGRAM_SET.index(unigram)] = 1
+			bigram_feature = [0]*len(BIGRAM_SET)
+			for bigram in bigrams:
+				bigram_feature[BIGRAM_SET.index(bigram)] = 1
+			trigram_feature = [0]*len(TRIGRAM_SET)
+			for trigram in trigrams:
+				trigram_feature[TRIGRAM_SET.index(trigram)] = 1
+			features[id] = numpy.concatenate((features[id], unigram_feature, bigram_feature, trigram_feature))	
+				
+		if args.parse:
+			parse_feature = [0]*len(LEXPARSE_PRODUCTION_RULE_SET)
+			for production in productions:
+				parse_feature[LEXPARSE_PRODUCTION_RULE_SET.index(production)] += 1
+			for i in range(len(parse_feature)):
+				parse_feature[i] = parse_feature[i]*1.0/len(stanford_annotations[id])
+			features[id] = numpy.concatenate((features[id], parse_feature))
+				
 	return features
 
 def read_data(dataset):
@@ -354,17 +381,17 @@ if __name__ == "__main__":
 	argparser.add_argument("--dataset_stanford_annotations_file", type = str)
 	argparser.add_argument("--dataset_stanford_parse_file", type = str)
 	argparser.add_argument("--word2vec_pretrained_model", type = str)
-	argparser.add_argument("--case", type=bool, default=True)
-	argparser.add_argument("--dependency", type=bool, default=True)
-	argparser.add_argument("--entity", type=bool, default=True)
-	argparser.add_argument("--lexical", type=bool, default=True)
-	argparser.add_argument("--ngram", type=bool, default=True)
-	argparser.add_argument("--parse", type=bool, default=True)
-	argparser.add_argument("--POS", type=bool, default=True)
-	argparser.add_argument("--punctuation", type=bool, default=True)
-	argparser.add_argument("--readability", type=bool, default=True)
-	argparser.add_argument("--subjectivity", type=bool, default=True)
-	argparser.add_argument("--word2vec", type=bool, default=True)
+	argparser.add_argument("--case", dest='case', default=False, action='store_true')
+	argparser.add_argument("--dependency", dest='dependency', default=False, action='store_true')
+	argparser.add_argument("--entity", dest='entity', default=False, action='store_true')
+	argparser.add_argument("--lexical", dest='lexical', default=False, action='store_true')
+	argparser.add_argument("--ngram", dest='ngram', default=False, action='store_true')
+	argparser.add_argument("--parse", dest='parse', default=False, action='store_true')
+	argparser.add_argument("--POS", dest='POS', default=False, action='store_true')
+	argparser.add_argument("--punctuation", dest='punctuation', default=False, action='store_true')
+	argparser.add_argument("--readability", dest='readability', default=False, action='store_true')
+	argparser.add_argument("--subjectivity", dest='subjectivity', default=False, action='store_true')
+	argparser.add_argument("--word2vec", dest='word2vec', default=False, action='store_true')
 	args = argparser.parse_args()
 	print args
 	print ""
