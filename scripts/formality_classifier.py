@@ -17,6 +17,9 @@ POS_TAGSET = ['CC', 'CD', 'DT', 'EX', 'FW', 'IN', 'JJ', 'JJR', 'JJS', 'LS', 'MD'
 			  'RB', 'RBR', 'RBS', 'RP', 'SYM', 'TO', 'UH',\
 			  'VB', 'VBD', 'VBG', 'VBN', 'VBP', 'VBZ',\
 			  'WDT', 'WP', 'WP$', 'WRB']
+FP_PRO_LIST = ['i', 'we', 'me', 'us', 'my', 'mine', 'our', 'ours']
+TP_PRO_LIST = ['he', 'she', 'it', 'they', 'him', 'her', 'them', 'his', 'her', 'hers', 'its', 'their', 'theirs']
+
 UNIGRAM_SET = []
 BIGRAM_SET = []
 TRIGRAM_SET = []
@@ -49,7 +52,7 @@ def get_case_features(sent_annotations, sentence):
 		is_first_word_caps = 0
 	return [num_all_caps, is_sent_lower, is_first_word_caps]
 
-def get_dependency_tuples(sent_annotations):
+def get_dependency_tuples(sent_annotations, is_test):
 	# (gov, typ, dep)  (gov, typ)  (typ, dep)  (gov, dep)
 	global DEPENDENCY_TUPLE_SET
 	dependency_tuples = []
@@ -69,7 +72,8 @@ def get_dependency_tuples(sent_annotations):
 		gov_dep = [gov, dep]
 		if gov_dep not in dependency_tuples:
 			dependency_tuples.append(gov_dep)
-	DEPENDENCY_TUPLE_SET = list(DEPENDENCY_TUPLE_SET + dependency_tuples)
+	if not is_test:
+		DEPENDENCY_TUPLE_SET = list(DEPENDENCY_TUPLE_SET + dependency_tuples)
 	return dependency_tuples
 
 def get_entity_features(sent_annotations):
@@ -101,32 +105,34 @@ def get_lexical_features(words):
 	#TODO: avg formality score using Pavlick & Nenkova (2015)
 	return [avg_num_contractions, avg_word_len]
 	
-def get_ngrams(sentence):
+def get_ngrams(sentence, is_test):
 	blob = TextBlob(sentence)
 	global UNIGRAM_SET, BIGRAM_SET, TRIGRAM_SET
 	unigrams = sentence.split()
 	bigrams = blob.ngrams(n=2)
 	trigrams = blob.ngrams(n=3)
-	for unigram in unigrams:
-		if unigram not in UNIGRAM_SET:
-			UNIGRAM_SET.append(unigram)
-	for bigram in bigrams:
-		if bigram not in BIGRAM_SET:
-			BIGRAM_SET.append(bigram)
-	for trigram in trigrams:
-		if trigram not in TRIGRAM_SET:
-			TRIGRAM_SET.append(trigram)	
+	if not is_test:
+		for unigram in unigrams:
+			if unigram not in UNIGRAM_SET:
+				UNIGRAM_SET.append(unigram)
+		for bigram in bigrams:
+			if bigram not in BIGRAM_SET:
+				BIGRAM_SET.append(bigram)
+		for trigram in trigrams:
+			if trigram not in TRIGRAM_SET:
+				TRIGRAM_SET.append(trigram)	
 	return unigrams, bigrams, trigrams	
 				
-def get_parse_features(stanford_parse_tree, sent_annotations):
+def get_parse_features(stanford_parse_tree, sent_annotations, is_test):
 	sent_len = len(sent_annotations)
 	avg_depth = stanford_parse_tree.height()*1.0/sent_len
 	productions = []
 	for production in stanford_parse_tree.productions():
 		if production.is_lexical():
 			continue
-		if production not in LEXPARSE_PRODUCTION_RULE_SET:
-			LEXPARSE_PRODUCTION_RULE_SET.append(production)
+		if not is_test:
+			if production not in LEXPARSE_PRODUCTION_RULE_SET:
+				LEXPARSE_PRODUCTION_RULE_SET.append(production)
 		productions.append(production)
 	avg_depth_feature = [avg_depth]
 	return avg_depth_feature, list(productions)
@@ -154,8 +160,21 @@ def get_readability_features(sentence, words):
 	num_chars = len(sentence) - sentence.count(' ')
 	return [num_words, num_chars]
 
-def get_subjectivity_features():
-	pass
+def get_subjectivity_features(sent_annotations, sentence):
+	subjectivity_features = []
+	fp_pros = 0
+	tp_pros = 0
+	for word_annotations in sent_annotations:
+		if word_annotations.token in FP_PRO_LIST:
+			fp_pros += 1
+		if word_annotations.token in TP_PRO_LIST:
+			tp_pros += 1
+	subjectivity_features.append(fp_pros*1.0/len(sent_annotations))
+	subjectivity_features.append(tp_pros*1.0/len(sent_annotations))
+	polarity, subjectivity = TextBlob(sentence).sentiment
+	subjectivity_features.append(float(numpy.sign(polarity)))
+	subjectivity_features.append(subjectivity)
+	return subjectivity_features
 				
 def get_word2vec_features(sent_annotations, word2vec_model):
 	word_vectors = []
@@ -172,16 +191,12 @@ def get_word2vec_features(sent_annotations, word2vec_model):
 		avg_word_vectors = numpy.transpose(numpy.mean(word_vectors, axis=0))
 	return avg_word_vectors
 				
-def extract_features(corpus, stanford_annotations, stanford_parse_trees, args):
+def extract_features(corpus, stanford_annotations, stanford_parse_trees, args, word2vec_model, is_test=False):
 	features = {}
-	if args.word2vec:
-		print 'Loading word2vec model...'
-		start_time = time.time()
-		word2vec_model = gensim.models.KeyedVectors.load_word2vec_format(args.word2vec_pretrained_model, binary=True)
-		print time.time() - start_time
+	
 	for i in range(len(corpus)):
+		print i
 		id, sentence, rating = corpus[i]
-		# print i
 		try:
 			sent_annotations = stanford_annotations[id]
 		except:
@@ -199,9 +214,9 @@ def extract_features(corpus, stanford_annotations, stanford_parse_trees, args):
 		
 		# dependency features
 		if args.dependency:
-			dependency_tuples = get_dependency_tuples(sent_annotations)
+			dependency_tuples = get_dependency_tuples(sent_annotations, is_test)
 		else:
-			dependency_tuple = None
+			dependency_tuples = None
 		
 		# entity features
 		if args.entity:
@@ -215,13 +230,13 @@ def extract_features(corpus, stanford_annotations, stanford_parse_trees, args):
 		
 		# ngram features
 		if args.ngram:
-			unigrams, bigrams, trigrams = get_ngrams(sentence)
+			unigrams, bigrams, trigrams = get_ngrams(sentence.decode('utf-8', 'ignore'), is_test)
 		else:
 			unigrams, bigrams, trigrams = None, None, None
 				
 		# parse features
 		if args.parse:
-			avg_depth_feature, productions = get_parse_features(stanford_parse_trees[id], sent_annotations)
+			avg_depth_feature, productions = get_parse_features(stanford_parse_trees[id], sent_annotations, is_test)
 			feature_set += avg_depth_feature
 		else:
 			productions = None
@@ -242,45 +257,58 @@ def extract_features(corpus, stanford_annotations, stanford_parse_trees, args):
 			feature_set += readability_features
 		
 		# subjectivity features
-		
-		# if args.subjectivity:
-		# 	 subjectivity_features = get_subjectivity_features()
+		if args.subjectivity:
+			subjectivity_features = get_subjectivity_features(sent_annotations, sentence.decode('utf-8', 'ignore'))
+			feature_set += subjectivity_features
 		
 		# word2vec features
 		if args.word2vec:
 			word2vec_features = get_word2vec_features(sent_annotations, word2vec_model)
 			feature_set = numpy.concatenate((feature_set, word2vec_features), axis=0)
 		
-		# feature_set = case_features + entity_features + lexical_features + \
-				# pos_features + punctuation_features + readability_features + avg_depth_feature
-		# feature_set = numpy.concatenate((feature_set, word2vec_features), axis=0)
 		features[id] = [feature_set, dependency_tuples, unigrams, bigrams, trigrams, productions]
 			
 	for id in features.keys():
+		print id
 		[feature_set, dependency_tuples, unigrams, bigrams, trigrams, productions] = features[id]
 		features[id] = feature_set
 		if args.dependency:
 			dependency_tuples_feature = [0]*len(DEPENDENCY_TUPLE_SET)
 			for dependency_tuple in dependency_tuples:
-				dependency_tuples_feature[DEPENDENCY_TUPLE_SET.index(dependency_tuple)] = 1
+				try:
+					dependency_tuples_feature[DEPENDENCY_TUPLE_SET.index(dependency_tuple)] = 1
+				except:
+					continue
 			features[id] = numpy.concatenate((features[id], dependency_tuples_feature))
 			
 		if args.ngram:
 			unigram_feature = [0]*len(UNIGRAM_SET)
 			for unigram in unigrams:
-				unigram_feature[UNIGRAM_SET.index(unigram)] = 1
+				try:
+					unigram_feature[UNIGRAM_SET.index(unigram)] = 1
+				except:
+					continue
 			bigram_feature = [0]*len(BIGRAM_SET)
 			for bigram in bigrams:
-				bigram_feature[BIGRAM_SET.index(bigram)] = 1
+				try:
+					bigram_feature[BIGRAM_SET.index(bigram)] = 1
+				except:
+					continue
 			trigram_feature = [0]*len(TRIGRAM_SET)
 			for trigram in trigrams:
-				trigram_feature[TRIGRAM_SET.index(trigram)] = 1
+				try:
+					trigram_feature[TRIGRAM_SET.index(trigram)] = 1
+				except:
+					continue
 			features[id] = numpy.concatenate((features[id], unigram_feature, bigram_feature, trigram_feature))	
 				
 		if args.parse:
 			parse_feature = [0]*len(LEXPARSE_PRODUCTION_RULE_SET)
 			for production in productions:
-				parse_feature[LEXPARSE_PRODUCTION_RULE_SET.index(production)] += 1
+				try:
+					parse_feature[LEXPARSE_PRODUCTION_RULE_SET.index(production)] += 1
+				except:
+					continue
 			for i in range(len(parse_feature)):
 				parse_feature[i] = parse_feature[i]*1.0/len(stanford_annotations[id])
 			features[id] = numpy.concatenate((features[id], parse_feature))
@@ -346,16 +374,39 @@ def extract_parse(lexparse_file, corpus):
 			parse_string += line.strip('\n')
 	return parse_trees
 
+def read_test_data(test_dataset):
+	test_corpus = []
+	id = 1
+	for line in test_dataset.readlines():
+		sentence = line.strip('\n')
+		test_corpus.append([id, sentence, None])
+		id += 1
+	return test_corpus
+		
 def main(args):
 	dataset = open(args.dataset_file, 'r')
 	dataset_stanford_annotations = open(args.dataset_stanford_annotations_file, 'r')
-	dataset_stanford_parse = open(args.dataset_stanford_parse_file, 'r')
+	
 	corpus = read_data(dataset)
 	stanford_annotations = extract_annotations(dataset_stanford_annotations, corpus)
-	stanford_parse_trees = extract_parse(dataset_stanford_parse, corpus)
+	
+	if args.parse:
+		dataset_stanford_parse = open(args.dataset_stanford_parse_file, 'r')
+		stanford_parse_trees = extract_parse(dataset_stanford_parse, corpus)
+	else:
+		stanford_parse_trees = None
+	
+	if args.word2vec:
+		print 'Loading word2vec model...'
+		start_time = time.time()
+		word2vec_model = gensim.models.KeyedVectors.load_word2vec_format(args.word2vec_pretrained_model, binary=True)
+		print time.time() - start_time
 	
 	# pdb.set_trace()
-	features = extract_features(corpus, stanford_annotations, stanford_parse_trees, args)
+	print 'Extracting features...'
+	start_time = time.time()
+	features = extract_features(corpus, stanford_annotations, stanford_parse_trees, args, word2vec_model)
+	print time.time() - start_time
 	ridge_regression = linear_model.Ridge(alpha = .5)
 	feature_vectors = []
 	labels = []
@@ -364,22 +415,53 @@ def main(args):
 		labels.append(float(rating))
 	train_scores = []
 	test_scores = []
-	for train_features, train_labels, test_features, test_labels in k_fold_cross_validation(feature_vectors, labels, K=10):
-		ridge_regression.fit(train_features, train_labels)
-		predicted_train_labels = ridge_regression.predict(train_features)
-		predicted_test_labels = ridge_regression.predict(test_features)
-		train_scores.append(stats.spearmanr(train_labels, predicted_train_labels)[0])
-		test_scores.append(stats.spearmanr(test_labels, predicted_test_labels)[0])
-	print train_scores
-	print numpy.mean(train_scores)
-	print test_scores
-	print numpy.mean(test_scores)
+	if not args.test_dataset_file:
+		print 'Running 10 fold cross-validation...'
+		start_time = time.time()
+		for train_features, train_labels, test_features, test_labels in k_fold_cross_validation(feature_vectors, labels, K=10):
+			ridge_regression.fit(train_features, train_labels)
+			predicted_train_labels = ridge_regression.predict(train_features)
+			predicted_test_labels = ridge_regression.predict(test_features)
+			train_scores.append(stats.spearmanr(train_labels, predicted_train_labels)[0])
+			test_scores.append(stats.spearmanr(test_labels, predicted_test_labels)[0])
+		print time.time() - start_time
+		print train_scores
+		print numpy.mean(train_scores)
+		print test_scores
+		print numpy.mean(test_scores)
 	
+	if args.test_dataset_file:
+		test_dataset = open(args.test_dataset_file, 'r')
+		test_corpus = read_test_data(test_dataset)
+		test_dataset_stanford_annotations = open(args.test_dataset_stanford_annotations_file, 'r')
+		test_stanford_annotations = extract_annotations(test_dataset_stanford_annotations, test_corpus)
+		if args.parse:
+			test_dataset_stanford_parse = open(args.test_dataset_stanford_parse_file, 'r')
+			test_stanford_parse_trees = extract_parse(test_dataset_stanford_parse, test_corpus)
+		else:
+			test_stanford_parse_trees = None
+		test_dataset_features = extract_features(test_corpus, test_stanford_annotations, test_stanford_parse_trees, args, word2vec_model, is_test=True)
+
+		ridge_regression.fit(feature_vectors, labels)
+		test_dataset_feature_vectors = []
+		for id, sentence, rating in test_corpus:
+			test_dataset_feature_vectors.append(test_dataset_features[id])
+		predicted_test_dataset_labels = ridge_regression.predict(test_dataset_feature_vectors)
+		i = 0
+		test_dataset_predictions_output = open(args.test_dataset_predictions_output_file, 'w')
+		for id, sentence, rating in test_corpus:
+			test_dataset_predictions_output.write('%s\t%s\n' % (predicted_test_dataset_labels[i], sentence))
+			i += 1
+		
 if __name__ == "__main__":
 	argparser = argparse.ArgumentParser(sys.argv[0])
 	argparser.add_argument("--dataset_file", type = str)
 	argparser.add_argument("--dataset_stanford_annotations_file", type = str)
 	argparser.add_argument("--dataset_stanford_parse_file", type = str)
+	argparser.add_argument("--test_dataset_file", type = str)
+	argparser.add_argument("--test_dataset_stanford_annotations_file", type = str)
+	argparser.add_argument("--test_dataset_stanford_parse_file", type = str)
+	argparser.add_argument("--test_dataset_predictions_output_file", type = str)
 	argparser.add_argument("--word2vec_pretrained_model", type = str)
 	argparser.add_argument("--case", dest='case', default=False, action='store_true')
 	argparser.add_argument("--dependency", dest='dependency', default=False, action='store_true')
