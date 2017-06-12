@@ -4,6 +4,7 @@ from textblob import TextBlob
 import pdb, time
 import nltk, numpy
 from nltk.tree import *
+import uuid
 import gensim
 from sklearn import linear_model
 from sklearn.model_selection import cross_val_score
@@ -318,7 +319,12 @@ def extract_features(corpus, stanford_annotations, stanford_parse_trees, args, w
 def read_data(dataset):
 	corpus = []
 	for line in dataset.readlines():
-		rating, _, id, sentence = line.split('\t')
+		parts = line.split('\t')
+		if len(parts) == 4:
+			rating, _, id, sentence = parts
+		else:
+			rating, _, sentence = parts
+			id = uuid.uuid4()
 		corpus.append([id, sentence, rating])
 	return corpus
 
