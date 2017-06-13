@@ -393,8 +393,12 @@ def main(args):
 		# svm_classifier.fit(train_features, train_labels)
 		# predicted_train_labels = svm_classifier.predict(train_features)
 		# predicted_test_labels = svm_classifier.predict(test_features)
-		# train_scores.append(stats.spearmanr(train_labels, predicted_train_labels)[0])
-		test_scores.append(stats.spearmanr(test_labels, predicted_test_labels)[0])
+		# train_score = stats.spearmanr(train_labels, predicted_train_labels)[0]
+		# train_scores.append(train_score)
+		# print train_score
+		test_score = stats.spearmanr(test_labels, predicted_test_labels)[0]
+		test_scores.append(test_score)
+		print test_score
 		print time.time() - start_time
 	# print train_scores
 	# print numpy.mean(train_scores)
