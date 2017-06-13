@@ -57,13 +57,13 @@ def get_dependency_tuples(sent_annotations, is_test):
 		typ = word_annotations.depRel
 		dep = word_annotations.pos
 		gov_typ_dep = '_'.join([gov, typ, dep])
-		dependency_tuple_dict[gov_typ_dep] += 1
+		dependency_tuple_dict[gov_typ_dep] = 1
 		gov_typ = '_'.join([gov, typ])
-		dependency_tuple_dict[gov_typ] += 1
+		dependency_tuple_dict[gov_typ] = 1
 		typ_dep = '_'.join([typ, dep])
-		dependency_tuple_dict[typ_dep] += 1
+		dependency_tuple_dict[typ_dep] = 1
 		gov_dep = '_'.join([gov, dep])
-		dependency_tuple_dict[gov_dep] += 1
+		dependency_tuple_dict[gov_dep] = 1
 	return dependency_tuple_dict
 
 def get_entity_features(sent_annotations):
@@ -106,11 +106,11 @@ def get_ngrams(sent_annotations, is_test):
 	bigram_dict = defaultdict(int)
 	trigram_dict = defaultdict(int)
 	for unigram in unigrams:
-		unigram_dict[unigram] += 1
+		unigram_dict[unigram] = 1
 	for bigram in bigrams:
-		bigram_dict['_'.join(bigram)] += 1
+		bigram_dict['_'.join(bigram)] = 1
 	for trigram in trigrams:
-		trigram_dict['_'.join(trigram)] += 1
+		trigram_dict['_'.join(trigram)] = 1
 	return unigram_dict, bigram_dict, trigram_dict	
 				
 def get_parse_features(stanford_parse_tree, sent_annotations, is_test):
