@@ -10,6 +10,8 @@ from sklearn import linear_model
 from sklearn.model_selection import cross_val_score
 from scipy import stats
 from sklearn.metrics import make_scorer
+from sklearn.feature_extraction import DictVectorizer
+from sklearn.model_selection import KFold
 
 NER_TAGSET = ['LOCATION', 'PERSON', 'ORGANIZATION', 'MONEY', 'MISC', 'NUMBER', 'PERCENT', \
 			  'DATE', 'TIME', 'DURATION', 'SET', 'ORDINAL']
@@ -20,12 +22,6 @@ POS_TAGSET = ['CC', 'CD', 'DT', 'EX', 'FW', 'IN', 'JJ', 'JJR', 'JJS', 'LS', 'MD'
 			  'WDT', 'WP', 'WP$', 'WRB']
 FP_PRO_LIST = ['i', 'we', 'me', 'us', 'my', 'mine', 'our', 'ours']
 TP_PRO_LIST = ['he', 'she', 'it', 'they', 'him', 'her', 'them', 'his', 'her', 'hers', 'its', 'their', 'theirs']
-
-UNIGRAM_SET = []
-BIGRAM_SET = []
-TRIGRAM_SET = []
-DEPENDENCY_TUPLE_SET = []
-LEXPARSE_PRODUCTION_RULE_SET = []
 
 class StanfordAnnotations:
 	def __init__(self, token, lemma, pos, ner, head, depRel):
@@ -55,27 +51,20 @@ def get_case_features(sent_annotations, sentence):
 
 def get_dependency_tuples(sent_annotations, is_test):
 	# (gov, typ, dep)  (gov, typ)  (typ, dep)  (gov, dep)
-	global DEPENDENCY_TUPLE_SET
-	dependency_tuples = []
+	dependency_tuple_dict = defaultdict(int)
 	for word_annotations in sent_annotations:
 		gov = sent_annotations[int(word_annotations.head)-1].pos
 		typ = word_annotations.depRel
 		dep = word_annotations.pos
-		gov_typ_dep = [gov, typ, dep]
-		if gov_typ_dep not in dependency_tuples:
-			dependency_tuples.append(gov_typ_dep)
-		gov_typ = [gov, typ]
-		if gov_typ not in dependency_tuples:
-			dependency_tuples.append(gov_typ)
-		typ_dep = [typ, dep]
-		if typ_dep not in dependency_tuples:
-			dependency_tuples.append(typ_dep)
-		gov_dep = [gov, dep]
-		if gov_dep not in dependency_tuples:
-			dependency_tuples.append(gov_dep)
-	if not is_test:
-		DEPENDENCY_TUPLE_SET = list(DEPENDENCY_TUPLE_SET + dependency_tuples)
-	return dependency_tuples
+		gov_typ_dep = '_'.join([gov, typ, dep])
+		dependency_tuple_dict[gov_typ_dep] += 1
+		gov_typ = '_'.join([gov, typ])
+		dependency_tuple_dict[gov_typ] += 1
+		typ_dep = '_'.join([typ, dep])
+		dependency_tuple_dict[typ_dep] += 1
+		gov_dep = '_'.join([gov, dep])
+		dependency_tuple_dict[gov_dep] += 1
+	return dependency_tuple_dict
 
 def get_entity_features(sent_annotations):
 	ner_tags = [0]*len(NER_TAGSET)
@@ -106,37 +95,34 @@ def get_lexical_features(words):
 	#TODO: avg formality score using Pavlick & Nenkova (2015)
 	return [avg_num_contractions, avg_word_len]
 	
-def get_ngrams(sentence, is_test):
+def get_ngrams(sent_annotations, is_test):
+	tokens = [w.token for w in sent_annotations]
+	sentence = ' '.join(tokens).decode('utf-8', 'ignore')
 	blob = TextBlob(sentence)
-	global UNIGRAM_SET, BIGRAM_SET, TRIGRAM_SET
-	unigrams = sentence.split()
+	unigrams = tokens
 	bigrams = blob.ngrams(n=2)
 	trigrams = blob.ngrams(n=3)
-	if not is_test:
-		for unigram in unigrams:
-			if unigram not in UNIGRAM_SET:
-				UNIGRAM_SET.append(unigram)
-		for bigram in bigrams:
-			if bigram not in BIGRAM_SET:
-				BIGRAM_SET.append(bigram)
-		for trigram in trigrams:
-			if trigram not in TRIGRAM_SET:
-				TRIGRAM_SET.append(trigram)	
-	return unigrams, bigrams, trigrams	
+	unigram_dict = defaultdict(int)
+	bigram_dict = defaultdict(int)
+	trigram_dict = defaultdict(int)
+	for unigram in unigrams:
+		unigram_dict[unigram] += 1
+	for bigram in bigrams:
+		bigram_dict['_'.join(bigram)] += 1
+	for trigram in trigrams:
+		trigram_dict['_'.join(trigram)] += 1
+	return unigram_dict, bigram_dict, trigram_dict	
 				
 def get_parse_features(stanford_parse_tree, sent_annotations, is_test):
 	sent_len = len(sent_annotations)
 	avg_depth = stanford_parse_tree.height()*1.0/sent_len
-	productions = []
+	lexical_production_dict = defaultdict(int)
 	for production in stanford_parse_tree.productions():
 		if production.is_lexical():
 			continue
-		if not is_test:
-			if production not in LEXPARSE_PRODUCTION_RULE_SET:
-				LEXPARSE_PRODUCTION_RULE_SET.append(production)
-		productions.append(production)
+		lexical_production_dict[production] += 1
 	avg_depth_feature = [avg_depth]
-	return avg_depth_feature, list(productions)
+	return avg_depth_feature, lexical_production_dict
 			
 def get_POS_features(sent_annotations):
 	pos_tag_ct = [0]*len(POS_TAGSET)
@@ -191,12 +177,19 @@ def get_word2vec_features(sent_annotations, word2vec_model):
 	else:
 		avg_word_vectors = numpy.transpose(numpy.mean(word_vectors, axis=0))
 	return avg_word_vectors
+
+def remove_singletons(set):
+	new_set = defaultdict(int)
+	for item,count in set.iteritems():
+		if count > 1:
+			new_set[item] = count
+	return new_set
 				
 def extract_features(corpus, stanford_annotations, stanford_parse_trees, args, word2vec_model, is_test=False):
 	features = {}
 	
 	for i in range(len(corpus)):
-		print i
+		# print i
 		id, sentence, rating = corpus[i]
 		try:
 			sent_annotations = stanford_annotations[id]
@@ -215,9 +208,9 @@ def extract_features(corpus, stanford_annotations, stanford_parse_trees, args, w
 		
 		# dependency features
 		if args.dependency:
-			dependency_tuples = get_dependency_tuples(sent_annotations, is_test)
+			dependency_tuple_dict = get_dependency_tuples(sent_annotations, is_test)
 		else:
-			dependency_tuples = None
+			dependency_tuple_dict = None
 		
 		# entity features
 		if args.entity:
@@ -231,16 +224,16 @@ def extract_features(corpus, stanford_annotations, stanford_parse_trees, args, w
 		
 		# ngram features
 		if args.ngram:
-			unigrams, bigrams, trigrams = get_ngrams(sentence.decode('utf-8', 'ignore'), is_test)
+			unigram_dict, bigram_dict, trigram_dict = get_ngrams(sent_annotations, is_test)
 		else:
-			unigrams, bigrams, trigrams = None, None, None
+			unigram_dict, bigram_dict, trigram_dict = None, None, None
 				
 		# parse features
 		if args.parse:
-			avg_depth_feature, productions = get_parse_features(stanford_parse_trees[id], sent_annotations, is_test)
+			avg_depth_feature, lexical_production_dict = get_parse_features(stanford_parse_trees[id], sent_annotations, is_test)
 			feature_set += avg_depth_feature
 		else:
-			productions = None
+			lexical_production_dict = None
 		
 		# POS features
 		if args.POS:
@@ -267,54 +260,42 @@ def extract_features(corpus, stanford_annotations, stanford_parse_trees, args, w
 			word2vec_features = get_word2vec_features(sent_annotations, word2vec_model)
 			feature_set = numpy.concatenate((feature_set, word2vec_features), axis=0)
 		
-		features[id] = [feature_set, dependency_tuples, unigrams, bigrams, trigrams, productions]
+		features[id] = [feature_set, dependency_tuple_dict, unigram_dict, bigram_dict, trigram_dict, lexical_production_dict]
+	
+	dependency_tuple_feature_set = []
+	unigram_feature_set = []
+	bigram_feature_set = []
+	trigram_feature_set = []
+	lexical_production_feature_set = []
+	other_feature_set = []
+	ordered_ids = []
 			
 	for id in features.keys():
-		print id
-		[feature_set, dependency_tuples, unigrams, bigrams, trigrams, productions] = features[id]
-		features[id] = feature_set
-		if args.dependency:
-			dependency_tuples_feature = [0]*len(DEPENDENCY_TUPLE_SET)
-			for dependency_tuple in dependency_tuples:
-				try:
-					dependency_tuples_feature[DEPENDENCY_TUPLE_SET.index(dependency_tuple)] = 1
-				except:
-					continue
-			features[id] = numpy.concatenate((features[id], dependency_tuples_feature))
-			
-		if args.ngram:
-			unigram_feature = [0]*len(UNIGRAM_SET)
-			for unigram in unigrams:
-				try:
-					unigram_feature[UNIGRAM_SET.index(unigram)] = 1
-				except:
-					continue
-			bigram_feature = [0]*len(BIGRAM_SET)
-			for bigram in bigrams:
-				try:
-					bigram_feature[BIGRAM_SET.index(bigram)] = 1
-				except:
-					continue
-			trigram_feature = [0]*len(TRIGRAM_SET)
-			for trigram in trigrams:
-				try:
-					trigram_feature[TRIGRAM_SET.index(trigram)] = 1
-				except:
-					continue
-			features[id] = numpy.concatenate((features[id], unigram_feature, bigram_feature, trigram_feature))	
+		[feature_set, dependency_tuple_dict, unigram_dict, bigram_dict, trigram_dict, lexical_production_dict] = features[id]
+		dependency_tuple_feature_set.append(dependency_tuple_dict)
+		unigram_feature_set.append(unigram_dict)
+		bigram_feature_set.append(bigram_dict)
+		trigram_feature_set.append(trigram_dict)
+		lexical_production_feature_set.append(lexical_production_dict)
+		other_feature_set.append(feature_set)
+		ordered_ids.append(id)
+	
+	feature_vectors = other_feature_set
+	
+	v = DictVectorizer(sparse=False)
+	if args.dependency:
+		dependency_tuple_feature = v.fit_transform(dependency_tuple_feature_set)
+		feature_vectors = numpy.concatenate((feature_vectors, dependency_tuple_feature), axis=1)
+	if args.ngram:
+		unigram_feature = v.fit_transform(unigram_feature_set)
+		bigram_feature = v.fit_transform(bigram_feature_set)
+		trigram_feature = v.fit_transform(trigram_feature_set)
+		feature_vectors = numpy.concatenate((feature_vectors, unigram_feature, bigram_feature, trigram_feature), axis=1)
+	if args.parse:
+		lexical_production_feature = v.fit_transform(lexical_production_feature_set)
+		feature_vectors = numpy.concatenate((feature_vectors, lexical_production_feature), axis=1)
 				
-		if args.parse:
-			parse_feature = [0]*len(LEXPARSE_PRODUCTION_RULE_SET)
-			for production in productions:
-				try:
-					parse_feature[LEXPARSE_PRODUCTION_RULE_SET.index(production)] += 1
-				except:
-					continue
-			for i in range(len(parse_feature)):
-				parse_feature[i] = parse_feature[i]*1.0/len(stanford_annotations[id])
-			features[id] = numpy.concatenate((features[id], parse_feature))
-				
-	return features
+	return feature_vectors, ordered_ids
 
 def read_data(dataset):
 	corpus = []
@@ -348,18 +329,11 @@ def extract_annotations(dataset_stanford_annotations, corpus):
 	return stanford_annotations		
 
 def k_fold_cross_validation(features, labels, K, randomise = False):
-	"""
-	Generates K (training, validation) pairs from the items in X.
-
-	Each pair is a partition of X, where validation is an iterable
-	of length len(X)/K. So each training iterable is of length (K-1)*len(X)/K.
-
-	"""
-	for k in xrange(K):
-		train_features = [x for i, x in enumerate(features) if i % K != k]
-		train_labels = [x for i, x in enumerate(labels) if i % K != k]
-		test_features = [x for i, x in enumerate(features) if i % K == k]
-		test_labels = [x for i, x in enumerate(labels) if i % K == k]
+	k_fold = KFold(n_splits=K, shuffle=randomise)
+	labels = numpy.array(labels)
+	for train_index, test_index in k_fold.split(features):
+		train_features, test_features = features[train_index], features[test_index]
+		train_labels, test_labels = labels[train_index], labels[test_index]
 		yield train_features, train_labels, test_features, test_labels
 
 def extract_parse(lexparse_file, corpus):
@@ -411,26 +385,31 @@ def main(args):
 	# pdb.set_trace()
 	print 'Extracting features...'
 	start_time = time.time()
-	features = extract_features(corpus, stanford_annotations, stanford_parse_trees, args, word2vec_model)
+	feature_vectors, ordered_ids = extract_features(corpus, stanford_annotations, stanford_parse_trees, args, word2vec_model)
 	print time.time() - start_time
 	ridge_regression = linear_model.Ridge(alpha = .5)
-	feature_vectors = []
+
 	labels = []
+	ratings = {}
 	for id, sentence, rating in corpus:
-		feature_vectors.append(features[id])
-		labels.append(float(rating))
+		ratings[id] = rating
+	for id in ordered_ids:
+		labels.append(float(ratings[id]))
 	train_scores = []
 	test_scores = []
 	if not args.test_dataset_file:
 		print 'Running 10 fold cross-validation...'
-		start_time = time.time()
+		i = 1
 		for train_features, train_labels, test_features, test_labels in k_fold_cross_validation(feature_vectors, labels, K=10):
+			print 'Fold no. %d' % (i)
+			start_time = time.time()
+			i += 1
 			ridge_regression.fit(train_features, train_labels)
 			predicted_train_labels = ridge_regression.predict(train_features)
 			predicted_test_labels = ridge_regression.predict(test_features)
 			train_scores.append(stats.spearmanr(train_labels, predicted_train_labels)[0])
 			test_scores.append(stats.spearmanr(test_labels, predicted_test_labels)[0])
-		print time.time() - start_time
+			print time.time() - start_time
 		print train_scores
 		print numpy.mean(train_scores)
 		print test_scores
