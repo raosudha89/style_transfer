@@ -24,6 +24,10 @@ POS_TAGSET = ['CC', 'CD', 'DT', 'EX', 'FW', 'IN', 'JJ', 'JJR', 'JJS', 'LS', 'MD'
 FP_PRO_LIST = ['i', 'we', 'me', 'us', 'my', 'mine', 'our', 'ours']
 TP_PRO_LIST = ['he', 'she', 'it', 'they', 'him', 'her', 'them', 'his', 'her', 'hers', 'its', 'their', 'theirs']
 
+UNIGRAM_DICT = defaultdict(int)
+BIGRAM_DICT = defaultdict(int)
+TRIGRAM_DICT = defaultdict(int)
+
 class StanfordAnnotations:
 	def __init__(self, token, lemma, pos, ner, head, depRel):
 		self.token = token
@@ -106,12 +110,16 @@ def get_ngrams(sent_annotations, is_test):
 	unigram_dict = defaultdict(int)
 	bigram_dict = defaultdict(int)
 	trigram_dict = defaultdict(int)
+	global UNIGRAM_DICT, BIGRAM_DICT, TRIGRAM_DICT
 	for unigram in unigrams:
 		unigram_dict[unigram] = 1
+		UNIGRAM_DICT[unigram] += 1
 	for bigram in bigrams:
 		bigram_dict['_'.join(bigram)] = 1
+		BIGRAM_DICT['_'.join(bigram)] += 1
 	for trigram in trigrams:
 		trigram_dict['_'.join(trigram)] = 1
+		TRIGRAM_DICT['_'.join(trigram)] += 1
 	return unigram_dict, bigram_dict, trigram_dict	
 				
 def get_parse_features(stanford_parse_tree, sent_annotations, is_test):
@@ -178,6 +186,13 @@ def get_word2vec_features(sent_annotations, word2vec_model):
 	else:
 		avg_word_vectors = numpy.transpose(numpy.mean(word_vectors, axis=0))
 	return avg_word_vectors
+
+def remove_singletons(dict, reference_dict):
+	new_dict = defaultdict(int)
+	for item,count in dict.iteritems():
+		if reference_dict[item] > 1:
+			new_dict[item] = count
+	return new_dict
 				
 def extract_features(sentences, stanford_annotations, stanford_parse_trees, args, word2vec_model, is_test=False):
 	features = [None]*len(sentences)
@@ -250,6 +265,8 @@ def extract_features(sentences, stanford_annotations, stanford_parse_trees, args
 		
 		features[i] = [feature_set, dependency_tuple_dict, unigram_dict, bigram_dict, trigram_dict, lexical_production_dict]
 	
+	global UNIGRAM_DICT, BIGRAM_DICT, TRIGRAM_DICT
+	
 	dependency_tuple_feature_set = []
 	unigram_feature_set = []
 	bigram_feature_set = []
@@ -260,9 +277,9 @@ def extract_features(sentences, stanford_annotations, stanford_parse_trees, args
 	for i in range(len(features)):
 		[feature_set, dependency_tuple_dict, unigram_dict, bigram_dict, trigram_dict, lexical_production_dict] = features[i]
 		dependency_tuple_feature_set.append(dependency_tuple_dict)
-		unigram_feature_set.append(unigram_dict)
-		bigram_feature_set.append(bigram_dict)
-		trigram_feature_set.append(trigram_dict)
+		unigram_feature_set.append(remove_singletons(unigram_dict, UNIGRAM_DICT))
+		bigram_feature_set.append(remove_singletons(bigram_dict, BIGRAM_DICT))
+		trigram_feature_set.append(remove_singletons(trigram_dict, TRIGRAM_DICT))
 		lexical_production_feature_set.append(lexical_production_dict)
 		other_feature_set.append(feature_set)
 	
