@@ -187,10 +187,10 @@ def get_word2vec_features(sent_annotations, word2vec_model):
 		avg_word_vectors = numpy.transpose(numpy.mean(word_vectors, axis=0))
 	return avg_word_vectors
 
-def remove_singletons(dict, reference_dict):
+def remove_less_frequent(dict, reference_dict, freq_cutoff):
 	new_dict = defaultdict(int)
 	for item,count in dict.iteritems():
-		if reference_dict[item] > 1:
+		if reference_dict[item] > freq_cutoff:
 			new_dict[item] = count
 	return new_dict
 				
@@ -277,9 +277,9 @@ def extract_features(sentences, stanford_annotations, stanford_parse_trees, args
 	for i in range(len(features)):
 		[feature_set, dependency_tuple_dict, unigram_dict, bigram_dict, trigram_dict, lexical_production_dict] = features[i]
 		dependency_tuple_feature_set.append(dependency_tuple_dict)
-		unigram_feature_set.append(remove_singletons(unigram_dict, UNIGRAM_DICT))
-		bigram_feature_set.append(remove_singletons(bigram_dict, BIGRAM_DICT))
-		trigram_feature_set.append(remove_singletons(trigram_dict, TRIGRAM_DICT))
+		unigram_feature_set.append(remove_less_frequent(unigram_dict, UNIGRAM_DICT, 1))
+		bigram_feature_set.append(remove_less_frequent(bigram_dict, BIGRAM_DICT, 2))
+		trigram_feature_set.append(remove_less_frequent(trigram_dict, TRIGRAM_DICT, 3))
 		lexical_production_feature_set.append(lexical_production_dict)
 		other_feature_set.append(feature_set)
 	
