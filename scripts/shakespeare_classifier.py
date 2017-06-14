@@ -393,8 +393,8 @@ def main(args):
 	
 	features, labels = combine_shuffle(features, len(modern_sentences))
 	
-	ridge_regression = linear_model.Ridge(alpha = .5)
-	# svm_classifier = svm.SVC()
+	# ridge_regression = linear_model.Ridge(alpha = .5)
+	svm_classifier = svm.SVC()
 	# train_scores = []
 	test_scores = []
 
@@ -404,21 +404,21 @@ def main(args):
 		print 'Fold no. %d' % (i)
 		i += 1
 		start_time = time.time()
-		ridge_regression.fit(train_features, train_labels)
+		# ridge_regression.fit(train_features, train_labels)
 		# predicted_train_labels = ridge_regression.predict(train_features)
-		predicted_test_labels = ridge_regression.predict(test_features)
-		# svm_classifier.fit(train_features, train_labels)
-		# predicted_train_labels = svm_classifier.predict(train_features)
-		# predicted_test_labels = svm_classifier.predict(test_features)
-		# train_score = stats.spearmanr(train_labels, predicted_train_labels)[0]
-		# train_scores.append(train_score)
-		# print train_score
+		# predicted_test_labels = ridge_regression.predict(test_features)
+		svm_classifier.fit(train_features, train_labels)
+		predicted_train_labels = svm_classifier.predict(train_features)
+		predicted_test_labels = svm_classifier.predict(test_features)
+		train_score = stats.spearmanr(train_labels, predicted_train_labels)[0]
+		train_scores.append(train_score)
+		print train_score
 		test_score = stats.spearmanr(test_labels, predicted_test_labels)[0]
 		test_scores.append(test_score)
 		print test_score
 		print time.time() - start_time
-	# print train_scores
-	# print numpy.mean(train_scores)
+	print train_scores
+	print numpy.mean(train_scores)
 	print test_scores
 	print numpy.mean(test_scores)
 		
