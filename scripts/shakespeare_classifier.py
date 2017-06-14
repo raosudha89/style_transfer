@@ -395,7 +395,7 @@ def main(args):
 	
 	# ridge_regression = linear_model.Ridge(alpha = .5)
 	svm_classifier = svm.SVC()
-	# train_scores = []
+	train_scores = []
 	test_scores = []
 
 	print 'Running 10 fold cross-validation...'
