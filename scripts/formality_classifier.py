@@ -12,6 +12,9 @@ from scipy import stats
 from sklearn.metrics import make_scorer
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.model_selection import KFold
+from sklearn.decomposition import PCA
+from sklearn.feature_selection import SelectKBest
+from sklearn.pipeline import FeatureUnion
 
 NER_TAGSET = ['LOCATION', 'PERSON', 'ORGANIZATION', 'MONEY', 'MISC', 'NUMBER', 'PERCENT', \
 			  'DATE', 'TIME', 'DURATION', 'SET', 'ORDINAL']
@@ -96,7 +99,8 @@ def get_lexical_features(words):
 	return [avg_num_contractions, avg_word_len]
 	
 def get_ngrams(sent_annotations, is_test):
-	tokens = [w.token for w in sent_annotations]
+	# tokens = [w.token for w in sent_annotations]
+	tokens = [w.lemma for w in sent_annotations]
 	sentence = ' '.join(tokens).decode('utf-8', 'ignore')
 	blob = TextBlob(sentence)
 	unigrams = tokens
@@ -152,9 +156,9 @@ def get_subjectivity_features(sent_annotations, sentence):
 	fp_pros = 0
 	tp_pros = 0
 	for word_annotations in sent_annotations:
-		if word_annotations.token in FP_PRO_LIST:
+		if word_annotations.lemma in FP_PRO_LIST:
 			fp_pros += 1
-		if word_annotations.token in TP_PRO_LIST:
+		if word_annotations.lemma in TP_PRO_LIST:
 			tp_pros += 1
 	subjectivity_features.append(fp_pros*1.0/len(sent_annotations))
 	subjectivity_features.append(tp_pros*1.0/len(sent_annotations))
@@ -167,7 +171,7 @@ def get_word2vec_features(sent_annotations, word2vec_model):
 	word_vectors = []
 	for word_annotations in sent_annotations:
 		try:
-			word_vector = word2vec_model[word_annotations.token]
+			word_vector = word2vec_model[word_annotations.lemma]
 			word_vectors.append(word_vector)
 		except:
 			# print word_annotations.token
@@ -178,15 +182,15 @@ def get_word2vec_features(sent_annotations, word2vec_model):
 		avg_word_vectors = numpy.transpose(numpy.mean(word_vectors, axis=0))
 	return avg_word_vectors
 
-def remove_singletons(set):
-	new_set = defaultdict(int)
-	for item,count in set.iteritems():
-		if count > 1:
-			new_set[item] = count
-	return new_set
+def remove_less_frequent(dict, reference_dict, freq_cutoff):
+	new_dict = defaultdict(int)
+	for item,count in dict.iteritems():
+		if reference_dict[item] > freq_cutoff:
+			new_dict[item] = count
+	return new_dict
 				
 def extract_features(corpus, stanford_annotations, stanford_parse_trees, args, word2vec_model, is_test=False):
-	features = {}
+	features = []
 	
 	for i in range(len(corpus)):
 		# print i
@@ -194,9 +198,9 @@ def extract_features(corpus, stanford_annotations, stanford_parse_trees, args, w
 		try:
 			sent_annotations = stanford_annotations[id]
 		except:
-			# pdb.set_trace()
+			pdb.set_trace()
 			# continue
-			break
+			# break
 		words = sentence.split()
 		
 		feature_set = []
@@ -260,27 +264,27 @@ def extract_features(corpus, stanford_annotations, stanford_parse_trees, args, w
 			word2vec_features = get_word2vec_features(sent_annotations, word2vec_model)
 			feature_set = numpy.concatenate((feature_set, word2vec_features), axis=0)
 		
-		features[id] = [feature_set, dependency_tuple_dict, unigram_dict, bigram_dict, trigram_dict, lexical_production_dict]
+		features.append([feature_set, dependency_tuple_dict, unigram_dict, bigram_dict, trigram_dict, lexical_production_dict])
 	
+	# global UNIGRAM_DICT, BIGRAM_DICT, TRIGRAM_DICT		
+			
 	dependency_tuple_feature_set = []
 	unigram_feature_set = []
 	bigram_feature_set = []
 	trigram_feature_set = []
 	lexical_production_feature_set = []
 	other_feature_set = []
-	ordered_ids = []
 			
-	for id in features.keys():
-		[feature_set, dependency_tuple_dict, unigram_dict, bigram_dict, trigram_dict, lexical_production_dict] = features[id]
+	for i in range(len(features)):
+		[feature_set, dependency_tuple_dict, unigram_dict, bigram_dict, trigram_dict, lexical_production_dict] = features[i]
 		dependency_tuple_feature_set.append(dependency_tuple_dict)
 		unigram_feature_set.append(unigram_dict)
 		bigram_feature_set.append(bigram_dict)
 		trigram_feature_set.append(trigram_dict)
 		lexical_production_feature_set.append(lexical_production_dict)
 		other_feature_set.append(feature_set)
-		ordered_ids.append(id)
 	
-	feature_vectors = other_feature_set
+	feature_vectors = numpy.array(other_feature_set)
 	
 	v = DictVectorizer(sparse=False)
 	if args.dependency:
@@ -294,18 +298,26 @@ def extract_features(corpus, stanford_annotations, stanford_parse_trees, args, w
 	if args.parse:
 		lexical_production_feature = v.fit_transform(lexical_production_feature_set)
 		feature_vectors = numpy.concatenate((feature_vectors, lexical_production_feature), axis=1)
-				
-	return feature_vectors, ordered_ids
+	
+	print 'No. of unigram features %d ' % len(unigram_feature[0])
+	print 'No. of bigram features %d ' % len(bigram_feature[0])
+	print 'No. of trigram features %d ' % len(trigram_feature[0])
+	print 'No. of other_features %d ' % len(other_feature_set[0])
+	print 'Total no. of features %d ' % len(feature_vectors[0])
+
+	return feature_vectors
 
 def read_data(dataset):
 	corpus = []
+	index = 0
 	for line in dataset.readlines():
 		parts = line.split('\t')
 		if len(parts) == 4:
 			rating, _, id, sentence = parts
 		else:
 			rating, _, sentence = parts
-			id = uuid.uuid4()
+			id = index
+			index += 1
 		corpus.append([id, sentence, rating])
 	return corpus
 
@@ -356,67 +368,30 @@ def extract_parse(lexparse_file, corpus):
 
 def read_test_data(test_dataset):
 	test_corpus = []
-	id = 1
 	for line in test_dataset.readlines():
 		sentence = line.strip('\n')
+		id = str(uuid.uuid4())
 		test_corpus.append([id, sentence, None])
-		id += 1
 	return test_corpus
 		
 def main(args):
 	dataset = open(args.dataset_file, 'r')
 	dataset_stanford_annotations = open(args.dataset_stanford_annotations_file, 'r')
 	
-	corpus = read_data(dataset)
-	stanford_annotations = extract_annotations(dataset_stanford_annotations, corpus)
+	train_corpus = read_data(dataset)
+	train_stanford_annotations = extract_annotations(dataset_stanford_annotations, train_corpus)
 	
 	if args.parse:
 		dataset_stanford_parse = open(args.dataset_stanford_parse_file, 'r')
-		stanford_parse_trees = extract_parse(dataset_stanford_parse, corpus)
+		train_stanford_parse_trees = extract_parse(dataset_stanford_parse, train_corpus)
 	else:
-		stanford_parse_trees = None
+		train_stanford_parse_trees = None
 	
 	if args.word2vec:
 		print 'Loading word2vec model...'
 		start_time = time.time()
 		word2vec_model = gensim.models.KeyedVectors.load_word2vec_format(args.word2vec_pretrained_model, binary=True)
 		print time.time() - start_time
-	
-	# pdb.set_trace()
-	print 'Extracting features...'
-	start_time = time.time()
-	feature_vectors, ordered_ids = extract_features(corpus, stanford_annotations, stanford_parse_trees, args, word2vec_model)
-	print time.time() - start_time
-	ridge_regression = linear_model.Ridge(alpha = .5)
-
-	labels = []
-	ratings = {}
-	for id, sentence, rating in corpus:
-		ratings[id] = rating
-	for id in ordered_ids:
-		labels.append(float(ratings[id]))
-	train_scores = []
-	test_scores = []
-	if not args.test_dataset_file:
-		print 'Running 10 fold cross-validation...'
-		i = 1
-		for train_features, train_labels, test_features, test_labels in k_fold_cross_validation(feature_vectors, labels, K=10):
-			print 'Fold no. %d' % (i)
-			start_time = time.time()
-			i += 1
-			ridge_regression.fit(train_features, train_labels)
-			predicted_train_labels = ridge_regression.predict(train_features)
-			predicted_test_labels = ridge_regression.predict(test_features)
-			train_score = stats.spearmanr(train_labels, predicted_train_labels)[0]
-			train_scores.append(train_score)
-			test_score = stats.spearmanr(test_labels, predicted_test_labels)[0]
-			test_scores.append(test_score)
-			print train_score, test_score
-			print time.time() - start_time
-		print train_scores
-		print numpy.mean(train_scores)
-		print test_scores
-		print numpy.mean(test_scores)
 	
 	if args.test_dataset_file:
 		test_dataset = open(args.test_dataset_file, 'r')
@@ -428,13 +403,57 @@ def main(args):
 			test_stanford_parse_trees = extract_parse(test_dataset_stanford_parse, test_corpus)
 		else:
 			test_stanford_parse_trees = None
-		test_dataset_features = extract_features(test_corpus, test_stanford_annotations, test_stanford_parse_trees, args, word2vec_model, is_test=True)
+		# test_dataset_feature_vectors, _ = extract_features(test_corpus, test_stanford_annotations, test_stanford_parse_trees, args, word2vec_model, is_test=True)
 
-		ridge_regression.fit(feature_vectors, labels)
-		test_dataset_feature_vectors = []
-		for id, sentence, rating in test_corpus:
-			test_dataset_feature_vectors.append(test_dataset_features[id])
-		predicted_test_dataset_labels = ridge_regression.predict(test_dataset_feature_vectors)
+		corpus = train_corpus + test_corpus
+		train_stanford_annotations.update(test_stanford_annotations)
+		stanford_annotations = train_stanford_annotations
+		train_stanford_parse_trees.update(test_stanford_parse_trees)
+		stanford_parse_trees = train_stanford_parse_trees
+	
+	print 'Extracting features...'
+	start_time = time.time()
+	feature_vectors = extract_features(corpus, stanford_annotations, stanford_parse_trees, args, word2vec_model)
+	
+	train_feature_vectors = feature_vectors[:len(train_corpus)]
+	test_feature_vectors = feature_vectors[len(train_corpus):]
+	
+	print time.time() - start_time
+	ridge_regression = linear_model.Ridge(alpha = .5)
+	# print len(feature_vectors)
+	labels = []
+	for id, sentence, rating in train_corpus:
+		labels.append(float(rating))
+	
+	train_scores = []
+	test_scores = []
+	if not args.test_dataset_file:
+		K = 10
+		print 'Running 10 fold cross-validation...'
+	else:
+		K = 2
+	i = 1
+	for train_features, train_labels, test_features, test_labels in k_fold_cross_validation(train_feature_vectors, labels, K):
+		print 'Fold no. %d' % (i)
+		start_time = time.time()
+		i += 1
+		ridge_regression.fit(train_features, train_labels)
+		predicted_train_labels = ridge_regression.predict(train_features)
+		predicted_test_labels = ridge_regression.predict(test_features)
+		train_score = stats.spearmanr(train_labels, predicted_train_labels)[0]
+		train_scores.append(train_score)
+		test_score = stats.spearmanr(test_labels, predicted_test_labels)[0]
+		test_scores.append(test_score)
+		print train_score, test_score
+		print time.time() - start_time
+	print train_scores
+	print numpy.mean(train_scores)
+	print test_scores
+	print numpy.mean(test_scores)
+	
+	if args.test_dataset_file:
+		ridge_regression.fit(train_feature_vectors, labels)
+		predicted_test_dataset_labels = ridge_regression.predict(test_feature_vectors)
 		i = 0
 		test_dataset_predictions_output = open(args.test_dataset_predictions_output_file, 'w')
 		for id, sentence, rating in test_corpus:
