@@ -183,8 +183,8 @@ class Lang:
 		self.wordEmbeddings.append(word2vec_model[word])
 	    except:
 		# print(word)
-		# self.wordEmbeddings.append(word2vec_model['UNKNOWN'])
-		self.wordEmbeddings.append(np.random.uniform(-0.25,0.25,hidden_size))
+		self.wordEmbeddings.append(word2vec_model['UNKNOWN'])
+		# self.wordEmbeddings.append(np.random.uniform(-0.25,0.25,hidden_size))
             self.n_words += 1
         else:
             self.word2count[word] += 1
@@ -233,7 +233,7 @@ def readLangs(lang1, lang2, reverse=False):
     print("Reading lines...")
 
     # Read the file and split into lines
-    lines = open('answers_informal.3105.sentpairs.tsv', encoding='utf-8').\
+    lines = open('data/answers_informal.3105.sentpairs.tsv', encoding='utf-8').\
          read().strip().split('\n')
 
     # Split every line into pairs and normalize
@@ -320,7 +320,7 @@ def prepareData(lang1, lang2, word2vec_model, reverse=False):
     return input_lang, output_lang, pairs
 
 hidden_size = 300
-word2vec_pretrained_model = 'GoogleNews-vectors-negative300.bin'
+word2vec_pretrained_model = 'data/GoogleNews-vectors-negative300.bin'
 word2vec_model = gensim.models.KeyedVectors.load_word2vec_format(word2vec_pretrained_model, binary=True)
 
 #input_lang, output_lang, pairs = prepareData('eng', 'fra', True)
@@ -852,8 +852,8 @@ if use_cuda:
     encoder1 = encoder1.cuda()
     attn_decoder1 = attn_decoder1.cuda()
 
-trainIters(encoder1, attn_decoder1, 75000, print_every=5000)
-# trainIters(encoder1, attn_decoder1, 10, print_every=1)
+#trainIters(encoder1, attn_decoder1, 100000, print_every=5000)
+trainIters(encoder1, attn_decoder1, 10, print_every=1)
 
 ######################################################################
 #
