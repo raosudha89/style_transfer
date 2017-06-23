@@ -166,9 +166,9 @@ class Lang:
         self.word2count = {}
         self.index2word = {0: "SOS", 1: "EOS"}
         self.n_words = 2  # Count SOS and EOS
-    self.wordEmbeddings = []
-    self.wordEmbeddings.append(np.random.uniform(-0.25,0.25,hidden_size))
-    self.wordEmbeddings.append(np.random.uniform(-0.25,0.25,hidden_size))
+    	self.wordEmbeddings = []
+    	self.wordEmbeddings.append(np.random.uniform(-0.25,0.25,hidden_size))
+    	self.wordEmbeddings.append(np.random.uniform(-0.25,0.25,hidden_size))
 
     def addSentence(self, sentence, word2vec_model):
         for word in sentence.split(' '):
@@ -182,10 +182,10 @@ class Lang:
             try:
                 self.wordEmbeddings.append(word2vec_model[word])
             except:
-            # print(word)
-            # self.wordEmbeddings.append(word2vec_model['UNKNOWN'])
-                self.wordEmbeddings.append(np.random.uniform(-0.25,0.25,hidden_size))
-                self.n_words += 1
+            	# print(word)
+            	self.wordEmbeddings.append(word2vec_model['UNKNOWN'])
+                # self.wordEmbeddings.append(np.random.uniform(-0.25,0.25,hidden_size))
+            self.n_words += 1
         else:
             self.word2count[word] += 1
 
@@ -229,42 +229,12 @@ def tokenizeSent(s):
 # flag to reverse the pairs.
 #
 
-def readLangs(lang1, lang2, reverse=False):
-    print("Reading lines...")
-
-    # Read the file and split into lines
-    lines = open('data/answers_informal.3105.sentpairs.tsv', encoding='utf-8').\
-         read().strip().split('\n')
-
-    # Split every line into pairs and normalize
+def readData(data_file):
+    print("Reading data...")
+    lines = open(data_file, encoding='utf-8').read().strip().split('\n')
     pairs = [[tokenizeSent(s) for s in l.split('\t')] for l in lines]
-    # lang1_file = open('/corpora/shakespeare/plays_%s.snt.aligned' % lang1, 'r')
-    # lang2_file = open('/corpora/shakespeare/plays_%s.snt.aligned' % lang2, 'r')
-    # lang1_file = open('/corpora/bible/kjv_apocrypha/kjv_apocrypha_utf8.txt.sents', 'r')
-    # lang2_file = open('/corpora/bible/asv/asv_utf8.txt.sents', 'r')
-    # lang1_file = open('/corpora/bible/kjv_apocrypha/kjv_apocrypha_utf8.txt.sents', 'r')
-    # lang2_file = open('/corpora/bible/basic_english/basic_english_utf8.txt.sents', 'r')
-
-    # pairs = []
-    # for line in lang1_file.readlines():
-    #    sent = line.strip('\n')
-    #    pairs.append([tokenizeSent(sent), None])
-    # i = 0
-    # for line in lang2_file.readlines():
-    #    sent = line.strip('\n')
-    #    pairs[i][1] = tokenizeSent(sent)
-    #    i += 1
-    # Reverse pairs, make Lang instances
-    if reverse:
-        pairs = [list(reversed(p)) for p in pairs]
-        input_lang = Lang(lang2)
-        output_lang = Lang(lang1)
-    else:
-        input_lang = Lang(lang1)
-        output_lang = Lang(lang2)
-
-    return input_lang, output_lang, pairs
-
+    lang = Lang('en')
+    return lang, pairs 
 
 ######################################################################
 # Since there are a *lot* of example sentences and we want to train
@@ -305,26 +275,25 @@ def filterPairs(pairs):
 # -  Make word lists from sentences in pairs
 #
 
-def prepareData(lang1, lang2, word2vec_model, reverse=False):
-    input_lang, output_lang, pairs = readLangs(lang1, lang2, reverse)
+def prepareData(data_file, word2vec_model, reverse=False):
+    lang, pairs = readData(data_file)
     print("Read %s sentence pairs" % len(pairs))
     pairs = filterPairs(pairs)
     print("Trimmed to %s sentence pairs" % len(pairs))
     print("Counting words...")
     for pair in pairs:
-        input_lang.addSentence(pair[0], word2vec_model)
-        output_lang.addSentence(pair[1], word2vec_model)
+        lang.addSentence(pair[0], word2vec_model)
+        lang.addSentence(pair[1], word2vec_model)
     print("Counted words:")
-    print(input_lang.name, input_lang.n_words)
-    print(output_lang.name, output_lang.n_words)
-    return input_lang, output_lang, pairs
+    print(lang.name, lang.n_words)
+    return lang, pairs
 
 hidden_size = 300
 word2vec_pretrained_model = 'data/GoogleNews-vectors-negative300.bin'
 word2vec_model = gensim.models.KeyedVectors.load_word2vec_format(word2vec_pretrained_model, binary=True)
 
-#input_lang, output_lang, pairs = prepareData('eng', 'fra', True)
-input_lang, output_lang, pairs = prepareData('informal', 'formal', word2vec_model, False)
+data_file = 'data/answers_informal.3105.sentpairs.tsv'
+lang, pairs = prepareData(data_file, word2vec_model, False)
 print(random.choice(pairs))
 
 
@@ -385,7 +354,7 @@ class EncoderRNN(nn.Module):
         self.hidden_size = hidden_size
 
         self.embedding = nn.Embedding(input_size, hidden_size)
-        self.embedding.weight.data.copy_(torch.from_numpy(wordEmbeddings))
+	self.embedding.weight.data.copy_(torch.from_numpy(wordEmbeddings))
         self.gru = nn.GRU(hidden_size, hidden_size)
 
     def forward(self, input, hidden):
@@ -545,15 +514,16 @@ class ClassifierRNN(nn.Module):
         self.embedding = nn.Embedding(input_size, hidden_size)
         self.embedding.weight.data.copy_(torch.from_numpy(wordEmbeddings))
         self.gru = nn.GRU(hidden_size, hidden_size)
-        self.output2label = nn.Linear(hidden_size, n_classes)
+	self.output2label = nn.Linear(hidden_size, n_classes)
+        self.softmax = nn.LogSoftmax()
 
     def forward(self, input, hidden):
         embedded = self.embedding(input).view(1, 1, -1)
         output = embedded
         for i in range(self.n_layers):
             output, hidden = self.gru(output, hidden)
-        output = self.output2label(output)
-        output = nn.LogSoftmax(output)
+	output = self.output2label(output[0])
+        output = self.softmax(output)
         return output, hidden
 
     def initHidden(self):
@@ -602,8 +572,8 @@ def variableFromSentence(lang, sentence):
 
 
 def variablesFromPair(pair):
-    input_variable = variableFromSentence(input_lang, pair[0])
-    target_variable = variableFromSentence(output_lang, pair[1])
+    input_variable = variableFromSentence(lang, pair[0])
+    target_variable = variableFromSentence(lang, pair[1])
     return (input_variable, target_variable)
 
 
@@ -693,18 +663,20 @@ def pretrainGenerator(input_variable, target_variable, encoder, decoder, encoder
 
     return loss.data[0] / target_length
 
-def pretrainDiscriminator(input_variable, true_label, classifier, classifier_optimizer, criterion, max_length=MAX_LENGTH):
+def pretrainDiscriminator(input_variable, true_label_tensor, classifier, classifier_optimizer, criterion, max_length=MAX_LENGTH):
     classifier_hidden = classifier.initHidden()
     classifier_optimizer.zero_grad()
     input_length = input_variable.size()[0]
     
     for i in range(input_length):
-        output, classifier_hidden = classifier(input_variable, classifier_hidden)
-        
-    top_n, top_i = output.data.topk(1)
-    predicted_label = top_i[0][0]
-    loss = criterion(predicted_label, true_label)
+        output, classifier_hidden = classifier(input_variable[i], classifier_hidden)
+    
+    loss = criterion(output, true_label_tensor)
     loss.backward()
+
+    classifier_optimizer.step()
+
+    return output, loss.data[0]/input_length
 
 ######################################################################
 # This is a helper function to print time elapsed and estimated time
@@ -784,54 +756,96 @@ def pretrainDiscriminatorIters(classifier, n_iters, print_every=1000, plot_every
     plot_loss_total = 0  # Reset every plot_every
     
     classifier_optimizer = optim.SGD(classifier.parameters(), lr=learning_rate)
-    training_pairs = [variablesFromPair(random.choice(pairs))
-                      for i in range(n_iters)]
-    criterion = nn.NLLLoss()
+    informal_label = 0
+    informal_label_tensor = Variable(torch.cuda.LongTensor([informal_label]))
+    formal_label = 1
+    formal_label_tensor = Variable(torch.cuda.LongTensor([formal_label]))
+    informal_data = [(variableFromSentence('en', pair[0]), informal_label_tensor) for pair in pairs]
+    formal_data = [(variableFromSentence('en', pair[1]), formal_label_tensor) for pair in pairs]
+    data = informal_data + formal_data
+    training_data = [random.choice(data) for i in range(n_iters)] 
     
+    criterion = nn.NLLLoss()
+    corr = 0
+    total = 0
     for iter in range(1, n_iters + 1):
-        informal_sent, formal_sent = training_pairs[iter - 1]
-        loss = pretrainDiscriminator(informal_sent, 0, classifier, classifier_optimizer, criterion)
-        print_loss_total += loss
+	sentence = training_data[iter-1][0]
+	label = training_data[iter-1][1]
+        output, loss = pretrainDiscriminator(sentence, label, classifier, classifier_optimizer, criterion)
+        top_n, top_i = output.data.topk(1)
+        predicted_label = top_i[0][0]
+	if predicted_label == label.data[0]:
+	    corr += 1
+	total += 1
+	print_loss_total += loss
         plot_loss_total += loss
-        loss = pretrainDiscriminator(formal_sent, 1, classifier, classifier_optimizer, criterion)
-        print_loss_total += loss
-        plot_loss_total += loss
-        
+
         if iter % print_every == 0:
             print_loss_avg = print_loss_total / print_every
             print_loss_total = 0
             print('%s (%d %d%%) %.4f' % (timeSince(start, iter / n_iters),
                                          iter, iter / n_iters * 100, print_loss_avg))            
+	    print('Acc %f' % (corr*1.0 / total))
 
-def trainGANIters(encoder, decoder, discriminator, n_iters, print_every=1000, plot_every=100, learning_rate=0.01):
+def trainGANIters(encoder, decoder, classifier, n_iters, print_every=1000, plot_every=100, learning_rate=0.01):
     start = time.time()
     plot_losses = []
-    print_loss_total = 0  # Reset every print_every
-    plot_loss_total = 0  # Reset every plot_every
 
     encoder_optimizer = optim.SGD(encoder.parameters(), lr=learning_rate)
     decoder_optimizer = optim.SGD(decoder.parameters(), lr=learning_rate)
-    discriminator_optimizer = optim.SGD(discriminator.parameters(), lr=learning_rate)
-    # training_pairs = [variablesFromPair(random.choice(pairs))
-                      # for i in range(n_iters)]
+    classifier_optimizer = optim.SGD(classifier.parameters(), lr=learning_rate)
     criterion = nn.NLLLoss()
 
+    informal_label = 0
+    informal_label_tensor = Variable(torch.cuda.LongTensor([informal_label]))
+    formal_label = 1
+    formal_label_tensor = Variable(torch.cuda.LongTensor([formal_label]))
+
+    d_total = 0
+    d_corr = 0
+    d_loss_total = 0  # Reset every print_every
+
+    g_loss_total = 0  # Reset every print_every
+
     for iter in range(1, n_iters + 1):
-        # training_pair = training_pairs[iter - 1]
-        
+	for i in range(d_iters):
+	    training_pair = variablesFromPair(random.choice(pairs))
+            input_variable = training_pair[0]
+            real_target_variable = training_pair[1]
+            fake_output_words, attentions = evaluateGenerator(encoder, decoder, input_variable)
+            fake_target_variable = ' '.join(fake_output_words)
+            output, loss = pretrainDiscriminator(real_target_variable, formal_label_tensor, \
+						classifier, classifier_optimizer, criterion)
+            top_n, top_i = output.data.topk(1)
+            predicted_label = top_i[0][0]
+	    if predicted_label == formal_label_tensor.data[0]:
+	        d_corr += 1
+	    d_total += 1
+	    d_loss_total += loss
+
+            output, loss = pretrainDiscriminator(fake_target_variable, informal_label_tensor, \
+						classifier, classifier_optimizer, criterion)
+            top_n, top_i = output.data.topk(1)
+            predicted_label = top_i[0][0]
+	    if predicted_label == informal_label_tensor.data[0]:
+	        d_corr += 1
+	    d_total += 1
+	    d_loss_total += loss
+
         for i in range(g_iters):
             training_pair = variablesFromPair(random.choice(pairs))
             input_variable = training_pair[0]
             real_target_variable = training_pair[1]
      
-            fake_output_words, attentions = evaluate(encoder, decoder, input_variable)
+            fake_output_words, attentions = evaluateGenerator(encoder, decoder, input_variable)
             fake_target_variable = ' '.join(fake_output_words)
             
+	    pred_label = evaluateDiscriminator(classifier, fake_target_variable)
+
             loss = train(input_variable, target_variable, encoder,
                          decoder, encoder_optimizer, decoder_optimizer, criterion)
             
             print_loss_total += loss
-            plot_loss_total += loss
 
         if iter % print_every == 0:
             print_loss_avg = print_loss_total / print_every
@@ -839,12 +853,6 @@ def trainGANIters(encoder, decoder, discriminator, n_iters, print_every=1000, pl
             print('%s (%d %d%%) %.4f' % (timeSince(start, iter / n_iters),
                                          iter, iter / n_iters * 100, print_loss_avg))
 
-        if iter % plot_every == 0:
-            plot_loss_avg = plot_loss_total / plot_every
-            plot_losses.append(plot_loss_avg)
-            plot_loss_total = 0
-
-    # showPlot(plot_losses)
 
 ######################################################################
 # Plotting results
@@ -878,8 +886,8 @@ def showPlot(points):
 # attention outputs for display later.
 #
 
-def evaluate(encoder, decoder, sentence, max_length=MAX_LENGTH):
-    input_variable = variableFromSentence(input_lang, sentence)
+def evaluateGenerator(encoder, decoder, sentence, max_length=MAX_LENGTH):
+    input_variable = variableFromSentence(lang, sentence)
     input_length = input_variable.size()[0]
     encoder_hidden = encoder.initHidden()
 
@@ -909,29 +917,49 @@ def evaluate(encoder, decoder, sentence, max_length=MAX_LENGTH):
             decoded_words.append('<EOS>')
             break
         else:
-            decoded_words.append(output_lang.index2word[ni])
+            decoded_words.append(lang.index2word[ni])
         
         decoder_input = Variable(torch.LongTensor([[ni]]))
         decoder_input = decoder_input.cuda() if use_cuda else decoder_input
 
     return decoded_words, decoder_attentions[:di + 1]
 
+def evaluateDiscriminator(classifier, sentence):
+    input_variable = variableFromSentence('informal', sentence)
+    classifier_hidden = classifier.initHidden()
+    input_length = input_variable.size()[0]
+    
+    for i in range(input_length):
+        output, classifier_hidden = classifier(input_variable[i], classifier_hidden)
+   
+    top_n, top_i = output.data.topk(1)
+    predicted_label = top_i[0][0]
+    return predicted_label
 
 ######################################################################
 # We can evaluate random sentences from the training set and print out the
 # input, target, and output to make some subjective quality judgements:
 #
 
-def evaluateRandomly(encoder, decoder, n=10):
+def evaluateGeneratorRandomly(encoder, decoder, n=10):
     for i in range(n):
         pair = random.choice(pairs)
         print('>', pair[0])
         print('=', pair[1])
-        output_words, attentions = evaluate(encoder, decoder, pair[0])
+        output_words, attentions = evaluateGenerator(encoder, decoder, pair[0])
         output_sentence = ' '.join(output_words)
         print('<', output_sentence)
         print('')
 
+def evaluateDiscriminatorRandomly(classifier, n=10):
+    for i in range(n):
+	pair = random.choice(pairs)
+	pred_label = evaluateDiscriminator(classifier, pair[0])
+	print(pair[0])
+	print('True:%d Pred:%d' % (0, pred_label))
+	pred_label = evaluateDiscriminator(classifier, pair[1])
+	print(pair[1])
+	print('True:%d Pred:%d' % (1, pred_label))
 
 ######################################################################
 # Training and Evaluating
@@ -951,26 +979,25 @@ def evaluateRandomly(encoder, decoder, n=10):
 #    evaluate, and continue training later. Comment out the lines where the
 #    encoder and decoder are initialized and run ``trainIters`` again.
 #
-encoder1 = EncoderRNN(input_lang.n_words, hidden_size, np.array(input_lang.wordEmbeddings))
-attn_decoder1 = AttnDecoderRNN(hidden_size, output_lang.n_words,
-                               1, dropout_p=0.1)
-classifier = ClassifierRNN(input_lang.n_words, hidden_size, np.array(input_lang.wordEmbeddings))
+encoder1 = EncoderRNN(lang.n_words, hidden_size, np.array(lang.wordEmbeddings))
+attn_decoder1 = AttnDecoderRNN(hidden_size, lang.n_words, 1, dropout_p=0.1)
+classifier = ClassifierRNN(lang.n_words, hidden_size, np.array(lang.wordEmbeddings))
 
 if use_cuda:
     encoder1 = encoder1.cuda()
     attn_decoder1 = attn_decoder1.cuda()
     classifier = classifier.cuda()
 
-# pretrainGeneratorIters(encoder1, attn_decoder1, 75000, print_every=5000)
-pretrainGeneratorIters(encoder1, attn_decoder1, 10, print_every=1)
-# pretrainDiscriminatorIters(classifier, 75000, print_every=5000)
-pretrainDiscriminatorIters(classifier, 10, print_every=1)
+pretrainGeneratorIters(encoder1, attn_decoder1, 75000, print_every=5000)
+# pretrainGeneratorIters(encoder1, attn_decoder1, 10, print_every=1)
+pretrainDiscriminatorIters(classifier, 75000, print_every=5000)
+# pretrainDiscriminatorIters(classifier, 10, print_every=1)
 
 ######################################################################
 #
 
-evaluateRandomly(encoder1, attn_decoder1)
-
+evaluateGeneratorRandomly(encoder1, attn_decoder1)
+evaluateDiscriminatorRandomly(classifier)
 
 ######################################################################
 # Visualizing Attention
@@ -1016,21 +1043,21 @@ def showAttention(input_sentence, output_words, attentions):
 
 
 def evaluateAndShowAttention(input_sentence):
-    output_words, attentions = evaluate(
+    output_words, attentions = evaluateGenerator(
         encoder1, attn_decoder1, input_sentence)
     print('input =', input_sentence)
     print('output =', ' '.join(output_words))
     # showAttention(input_sentence, output_words, attentions)
 
-evaluateAndShowAttention("yeah um ....... i guess that 's a no !")
+#evaluateAndShowAttention("yeah um ....... i guess that 's a no !")
 
-evaluateAndShowAttention("no , his movements r not flexible")
+#evaluateAndShowAttention("no , his movements r not flexible")
 
-evaluateAndShowAttention("no he does not , it 's probably a rumor")
+#evaluateAndShowAttention("no he does not , it 's probably a rumor")
 
-evaluateAndShowAttention("i like bruce willis he makes good movies")
+#evaluateAndShowAttention("i like bruce willis he makes good movies")
 
-evaluateAndShowAttention("he 's just got a sexier look about him .")
+#evaluateAndShowAttention("he 's just got a sexier look about him .")
 
 ######################################################################
 # Exercises
