@@ -33,7 +33,7 @@ if __name__ == '__main__':
             # continue
         if len(sentence.split()) < 5 or len(sentence.split()) > 20:
             continue
-        if float(avg_score) <= -1.5:
+        if float(avg_score) <= -1.0:
             informal.append(sentence)
     shuffle(informal)
     print len(informal)
