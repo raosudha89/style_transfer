@@ -430,28 +430,29 @@ def main(args):
 	if not args.test_dataset_file:
 		K = 10
 		print 'Running 10 fold cross-validation...'
-	else:
-		K = 2
-	i = 1
-	for train_features, train_labels, test_features, test_labels in k_fold_cross_validation(train_feature_vectors, labels, K):
-		print 'Fold no. %d' % (i)
-		start_time = time.time()
-		i += 1
-		ridge_regression.fit(train_features, train_labels)
-		predicted_train_labels = ridge_regression.predict(train_features)
-		predicted_test_labels = ridge_regression.predict(test_features)
-		train_score = stats.spearmanr(train_labels, predicted_train_labels)[0]
-		train_scores.append(train_score)
-		test_score = stats.spearmanr(test_labels, predicted_test_labels)[0]
-		test_scores.append(test_score)
-		print train_score, test_score
-		print time.time() - start_time
-	print train_scores
-	print numpy.mean(train_scores)
-	print test_scores
-	print numpy.mean(test_scores)
+		i = 1
+		for train_features, train_labels, test_features, test_labels in k_fold_cross_validation(train_feature_vectors, labels, K):
+			print 'Fold no. %d' % (i)
+			start_time = time.time()
+			i += 1
+			ridge_regression.fit(train_features, train_labels)
+			predicted_train_labels = ridge_regression.predict(train_features)
+			predicted_test_labels = ridge_regression.predict(test_features)
+			train_score = stats.spearmanr(train_labels, predicted_train_labels)[0]
+			train_scores.append(train_score)
+			test_score = stats.spearmanr(test_labels, predicted_test_labels)[0]
+			test_scores.append(test_score)
+			print train_score, test_score
+			print time.time() - start_time
+
+		print train_scores
+		print numpy.mean(train_scores)
+		print test_scores
+		print numpy.mean(test_scores)
 	
 	if args.test_dataset_file:
+		print 'Predicting labels for test data...'
+		start_time = time.time()
 		ridge_regression.fit(train_feature_vectors, labels)
 		predicted_test_dataset_labels = ridge_regression.predict(test_feature_vectors)
 		i = 0
@@ -459,6 +460,7 @@ def main(args):
 		for id, sentence, rating in test_corpus:
 			test_dataset_predictions_output.write('%s\t%s\n' % (predicted_test_dataset_labels[i], sentence))
 			i += 1
+		print time.time() - start_time
 		
 if __name__ == "__main__":
 	argparser = argparse.ArgumentParser(sys.argv[0])
