@@ -175,6 +175,8 @@ def tokenizeSent(s, max_sent_len):
         tokens = nltk.word_tokenize(s)
         if len(tokens) > max_sent_len:
             return None
+    if len(tokens) == max_sent_len:
+        tokens = tokens[:-1] #keep one token space for EOS token
     return ' '.join(tokens)
 
 ######################################################################
