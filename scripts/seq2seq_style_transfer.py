@@ -272,19 +272,24 @@ class EncoderRNN(nn.Module):
 
         self.embedding = nn.Embedding(input_size, hidden_size)
         self.embedding.weight.data.copy_(torch.from_numpy(wordEmbeddings))
-        self.gru = nn.GRU(hidden_size, hidden_size)
+        # self.gru = nn.GRU(hidden_size, hidden_size)
+        self.LSTM = nn.LSTM(hidden_size, hidden_size)
 
     def forward(self, input, hidden):
         embedded = self.embedding(input).view(1, 1, -1)
         output = embedded
         for i in range(self.n_layers):
-            output, hidden = self.gru(output, hidden)
+            # output, hidden = self.gru(output, hidden)
+            output, hidden = self.LSTM(output, hidden)
         return output, hidden
 
     def initHidden(self):
-        result = Variable(torch.zeros(1, 1, self.hidden_size))
+        # result = Variable(torch.zeros(1, 1, self.hidden_size))
+        result = (Variable(torch.zeros(1, 1, self.hidden_size)), \
+                  Variable(torch.zeros(1, 1, self.hidden_size)))
         if use_cuda:
-            return result.cuda()
+            # return result.cuda()
+            return (result[0].cuda(), result[1].cuda())
         else:
             return result
 
@@ -335,15 +340,16 @@ class AttnDecoderRNN(nn.Module):
         self.attn = nn.Linear(self.hidden_size * 2, self.max_length)
         self.attn_combine = nn.Linear(self.hidden_size * 2, self.hidden_size)
         self.dropout = nn.Dropout(self.dropout_p)
-        self.gru = nn.GRU(self.hidden_size, self.hidden_size)
+        # self.gru = nn.GRU(self.hidden_size, self.hidden_size)
+        self.LSTM = nn.LSTM(self.hidden_size, self.hidden_size)
         self.out = nn.Linear(self.hidden_size, self.output_size)
 
     def forward(self, input, hidden, encoder_output, encoder_outputs):
         embedded = self.embedding(input).view(1, 1, -1)
         embedded = self.dropout(embedded)
 
-        attn_weights = F.softmax(
-            self.attn(torch.cat((embedded[0], hidden[0]), 1)))
+        # attn_weights = F.softmax(self.attn(torch.cat((embedded[0], hidden[0]), 1)))
+        attn_weights = F.softmax(self.attn(torch.cat((embedded[0], hidden[0][0]), 1)))
         attn_applied = torch.bmm(attn_weights.unsqueeze(0),
                                  encoder_outputs.unsqueeze(0))
 
@@ -352,15 +358,19 @@ class AttnDecoderRNN(nn.Module):
 
         for i in range(self.n_layers):
             output = F.relu(output)
-            output, hidden = self.gru(output, hidden)
+            # output, hidden = self.gru(output, hidden)
+            output, hidden = self.LSTM(output, hidden)
 
         output = F.log_softmax(self.out(output[0]))
         return output, hidden, attn_weights
 
     def initHidden(self):
-        result = Variable(torch.zeros(1, 1, self.hidden_size))
+        # result = Variable(torch.zeros(1, 1, self.hidden_size))
+        result = (Variable(torch.zeros(1, 1, self.hidden_size)), \
+                  Variable(torch.zeros(1, 1, self.hidden_size)))
         if use_cuda:
-            return result.cuda()
+            # return result.cuda()
+            return (result[0].cuda(), result[1].cuda())
         else:
             return result
 
@@ -545,7 +555,7 @@ def trainIters(lang, pairs, encoder, decoder, max_sent_len, hidden_size, n_iters
         training_pair = training_pairs[iter - 1]
         input_variable = training_pair[0]
         target_variable = training_pair[1]
- 
+
         loss = train(input_variable, target_variable, encoder,
                      decoder, encoder_optimizer, decoder_optimizer, criterion, max_sent_len, hidden_size)
         print_loss_total += loss
@@ -651,56 +661,11 @@ def evaluateRandomly(lang, pairs, encoder, decoder, max_sent_len, n=10):
         print('<', output_sentence)
         print('')
 
-
-######################################################################
-# Visualizing Attention
-# ---------------------
-#
-# A useful property of the attention mechanism is its highly interpretable
-# outputs. Because it is used to weight specific encoder outputs of the
-# input sequence, we can imagine looking where the network is focused most
-# at each time step.
-#
-# You could simply run ``plt.matshow(attentions)`` to see attention output
-# displayed as a matrix, with the columns being input steps and rows being
-# output steps:
-#
-
-# output_words, attentions = evaluate(
-#     encoder1, attn_decoder1, "I have a mind to strike thee ere thou speak’st.")
-# plt.matshow(attentions.numpy())
-
-
-######################################################################
-# For a better viewing experience we will do the extra work of adding axes
-# and labels:
-#
-
-def showAttention(input_sentence, output_words, attentions):
-    # Set up figure with colorbar
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-    cax = ax.matshow(attentions.numpy(), cmap='bone')
-    fig.colorbar(cax)
-
-    # Set up axes
-    ax.set_xticklabels([''] + input_sentence.split(' ') +
-                       ['<EOS>'], rotation=90)
-    ax.set_yticklabels([''] + output_words)
-
-    # Show label at every tick
-    ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
-    ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
-
-    plt.show()
-
-
-def evaluateAndShowAttention(lang, input_sentence):
+def evaluateAndShowAttention(lang, encoder1, attn_decoder1, input_sentence):
     output_words, attentions = evaluate(lang, 
         encoder1, attn_decoder1, input_sentence)
     print('input =', input_sentence)
     print('output =', ' '.join(output_words))
-    # showAttention(input_sentence, output_words, attentions)
 
 ######################################################################
 # Training and Evaluating
@@ -733,11 +698,11 @@ def main(args):
     trainIters(lang, pairs, encoder1, attn_decoder1, args.max_sent_len, args.hidden_size, 100000, print_every=5000)
     evaluateRandomly(lang, pairs, encoder1, attn_decoder1, args.max_sent_len)
 
-    evaluateAndShowAttention(lang, "yeah um ....... i guess that 's a no !")
-    evaluateAndShowAttention(lang, "no , his movements r not flexible")
-    evaluateAndShowAttention(lang, "no he does not , it 's probably a rumor")
-    evaluateAndShowAttention(lang, "i like bruce willis he makes good movies")
-    evaluateAndShowAttention(lang, "he 's just got a sexier look about him .")
+    evaluateAndShowAttention(lang, encoder1, attn_decoder1, "yeah um ....... i guess that 's a no !", args.max_sent_len)
+    evaluateAndShowAttention(lang, encoder1, attn_decoder1, "no , his movements r not flexible", args.max_sent_len)
+    evaluateAndShowAttention(lang, encoder1, attn_decoder1, "no he does not , it 's probably a rumor", args.max_sent_len)
+    evaluateAndShowAttention(lang, encoder1, attn_decoder1, "i like bruce willis he makes good movies", args.max_sent_len)
+    evaluateAndShowAttention(lang, encoder1, attn_decoder1, "he 's just got a sexier look about him .", args.max_sent_len)
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser(sys.argv[0])
