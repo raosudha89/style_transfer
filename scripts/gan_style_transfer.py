@@ -84,6 +84,7 @@ And for more, read the papers that introduced these topics:
 **Requirements**
 """
 from __future__ import unicode_literals, print_function, division
+import argparse, sys
 import gensim
 from io import open
 import nltk
@@ -105,47 +106,6 @@ nltk.download('punkt')
 use_cuda = torch.cuda.is_available()
 if use_cuda:
     print('Using cuda (GPU)')
-######################################################################
-# Loading data files
-# ==================
-#
-# The data for this project is a set of many thousands of English to
-# French translation pairs.
-#
-# `This question on Open Data Stack
-# Exchange <http://opendata.stackexchange.com/questions/3888/dataset-of-sentences-translated-into-many-languages>`__
-# pointed me to the open translation site http://tatoeba.org/ which has
-# downloads available at http://tatoeba.org/eng/downloads - and better
-# yet, someone did the extra work of splitting language pairs into
-# individual text files here: http://www.manythings.org/anki/
-#
-# The English to French pairs are too big to include in the repo, so
-# download to ``data/eng-fra.txt`` before continuing. The file is a tab
-# separated list of translation pairs:
-#
-# ::
-#
-#     I am cold.    Je suis froid.
-#
-# .. Note::
-#    Download the data from
-#    `here <https://download.pytorch.org/tutorial/data.zip>`_
-#    and extract it to the current directory.
-
-######################################################################
-# Similar to the character encoding used in the character-level RNN
-# tutorials, we will be representing each word in a language as a one-hot
-# vector, or giant vector of zeros except for a single one (at the index
-# of the word). Compared to the dozens of characters that might exist in a
-# language, there are many many more words, so the encoding vector is much
-# larger. We will however cheat a bit and trim the data to only use a few
-# thousand words per language.
-#
-# .. figure:: /_static/img/seq-seq-images/word-encoding.png
-#    :alt:
-#
-#
-
 
 ######################################################################
 # We'll need a unique index per word to use as the inputs and targets of
@@ -160,15 +120,15 @@ EOS_token = 1
 
 
 class Lang:
-    def __init__(self, name):
+    def __init__(self, name, hidden_size):
         self.name = name
         self.word2index = {}
         self.word2count = {}
         self.index2word = {0: "SOS", 1: "EOS"}
         self.n_words = 2  # Count SOS and EOS
-    	self.wordEmbeddings = []
-    	self.wordEmbeddings.append(np.random.uniform(-0.25,0.25,hidden_size))
-    	self.wordEmbeddings.append(np.random.uniform(-0.25,0.25,hidden_size))
+        self.wordEmbeddings = []
+        self.wordEmbeddings.append(np.random.uniform(-0.25,0.25,hidden_size))
+        self.wordEmbeddings.append(np.random.uniform(-0.25,0.25,hidden_size))
 
     def addSentence(self, sentence, word2vec_model):
         for word in sentence.split(' '):
@@ -182,8 +142,8 @@ class Lang:
             try:
                 self.wordEmbeddings.append(word2vec_model[word])
             except:
-            	# print(word)
-            	self.wordEmbeddings.append(word2vec_model['UNKNOWN'])
+                # print(word)
+                self.wordEmbeddings.append(word2vec_model['UNKNOWN'])
                 # self.wordEmbeddings.append(np.random.uniform(-0.25,0.25,hidden_size))
             self.n_words += 1
         else:
@@ -204,68 +164,21 @@ def unicodeToAscii(s):
         if unicodedata.category(c) != 'Mn'
     )
 
-# Lowercase, trim, and remove non-letter characters
+# Lowercase, trim, remove non-letter characters and tokenize
 
-
-def normalizeString(s):
+def tokenizeSent(s, max_sent_len):
     s = unicodeToAscii(s.lower().strip())
     s = re.sub(r"([.!?])", r" \1", s)
     s = re.sub(r"[^a-zA-Z.!?]+", r" ", s)
-    return s
-
-
-def tokenizeSent(s):
-    s = unicodeToAscii(s.lower().strip())
-    # s = unidecode(unicode(s, encoding = "utf-8"))
-    # s = s.lower()
-    s = re.sub(r"([.!?])", r" \1", s)
-    s = re.sub(r"[^a-zA-Z.!?]+", r" ", s)
-    return ' '.join(nltk.word_tokenize(s))
-
-######################################################################
-# To read the data file we will split the file into lines, and then split
-# lines into pairs. The files are all English → Other Language, so if we
-# want to translate from Other Language → English I added the ``reverse``
-# flag to reverse the pairs.
-#
-
-def readData(data_file):
-    print("Reading data...")
-    lines = open(data_file, encoding='utf-8').read().strip().split('\n')
-    pairs = [[tokenizeSent(s) for s in l.split('\t')] for l in lines]
-    lang = Lang('en')
-    return lang, pairs 
-
-######################################################################
-# Since there are a *lot* of example sentences and we want to train
-# something quickly, we'll trim the data set to only relatively short and
-# simple sentences. Here the maximum length is 10 words (that includes
-# ending punctuation) and we're filtering to sentences that translate to
-# the form "I am" or "He is" etc. (accounting for apostrophes replaced
-# earlier).
-#
-
-MAX_LENGTH = 20
-
-eng_prefixes = (
-    "i am ", "i m ",
-    "he is", "he s ",
-    "she is", "she s",
-    "you are", "you re ",
-    "we are", "we re ",
-    "they are", "they re "
-)
-
-
-def filterPair(p):
-    return len(p[0].split(' ')) < MAX_LENGTH and \
-        len(p[1].split(' ')) < MAX_LENGTH
-        # p[0].startswith(eng_prefixes)
-
-
-def filterPairs(pairs):
-    return [pair for pair in pairs if filterPair(pair)]
-
+    tokens = nltk.word_tokenize(s)
+    if len(tokens) > max_sent_len:
+        s = re.sub(r'[\? \. \! ]+(?=[\? \. \! ])', '', s)
+        tokens = nltk.word_tokenize(s)
+        if len(tokens) > max_sent_len:
+            return None
+    if len(tokens) == max_sent_len:
+        tokens = tokens[:-1] #keep one token space for EOS token
+    return ' '.join(tokens)
 
 ######################################################################
 # The full process for preparing the data is:
@@ -275,27 +188,32 @@ def filterPairs(pairs):
 # -  Make word lists from sentences in pairs
 #
 
-def prepareData(data_file, word2vec_model, reverse=False):
-    lang, pairs = readData(data_file)
+def prepareData(informal_file, formal_file, word2vec_model, hidden_size, max_sent_len):
+    print("Reading lines...")
+
+    # Read the file and split into lines
+    informal = open(informal_file, 'r', encoding='utf-8')
+    formal = open(formal_file, 'r', encoding='utf-8')
+
+    pairs = []
+    informal_lines = informal.readlines()
+    formal_lines = formal.readlines()
+    for i in range(len(informal_lines)):
+        informal_sent = informal_lines[i].strip('\n')
+        formal_sent = formal_lines[i].strip('\n')
+        tokenized_informal_sent = tokenizeSent(informal_sent, max_sent_len)
+        tokenized_formal_sent = tokenizeSent(formal_sent, max_sent_len)
+        if not tokenized_informal_sent or not tokenized_formal_sent:
+            continue
+        pairs.append([tokenized_informal_sent, tokenized_formal_sent])
     print("Read %s sentence pairs" % len(pairs))
-    pairs = filterPairs(pairs)
-    print("Trimmed to %s sentence pairs" % len(pairs))
-    print("Counting words...")
+    lang = Lang('en', hidden_size)
     for pair in pairs:
         lang.addSentence(pair[0], word2vec_model)
         lang.addSentence(pair[1], word2vec_model)
     print("Counted words:")
     print(lang.name, lang.n_words)
     return lang, pairs
-
-hidden_size = 300
-word2vec_pretrained_model = 'data/GoogleNews-vectors-negative300.bin'
-word2vec_model = gensim.models.KeyedVectors.load_word2vec_format(word2vec_pretrained_model, binary=True)
-
-data_file = 'data/answers_informal.3105.sentpairs.tsv'
-lang, pairs = prepareData(data_file, word2vec_model, False)
-print(random.choice(pairs))
-
 
 ######################################################################
 # The Seq2Seq Model
@@ -354,7 +272,7 @@ class EncoderRNN(nn.Module):
         self.hidden_size = hidden_size
 
         self.embedding = nn.Embedding(input_size, hidden_size)
-	self.embedding.weight.data.copy_(torch.from_numpy(wordEmbeddings))
+        self.embedding.weight.data.copy_(torch.from_numpy(wordEmbeddings))
         self.gru = nn.GRU(hidden_size, hidden_size)
 
     def forward(self, input, hidden):
@@ -370,67 +288,6 @@ class EncoderRNN(nn.Module):
             return result.cuda()
         else:
             return result
-
-######################################################################
-# The Decoder
-# -----------
-#
-# The decoder is another RNN that takes the encoder output vector(s) and
-# outputs a sequence of words to create the translation.
-#
-
-
-######################################################################
-# Simple Decoder
-# ^^^^^^^^^^^^^^
-#
-# In the simplest seq2seq decoder we use only last output of the encoder.
-# This last output is sometimes called the *context vector* as it encodes
-# context from the entire sequence. This context vector is used as the
-# initial hidden state of the decoder.
-#
-# At every step of decoding, the decoder is given an input token and
-# hidden state. The initial input token is the start-of-string ``<SOS>``
-# token, and the first hidden state is the context vector (the encoder's
-# last hidden state).
-#
-# .. figure:: /_static/img/seq-seq-images/decoder-network.png
-#    :alt:
-#
-#
-
-class DecoderRNN(nn.Module):
-    def __init__(self, hidden_size, output_size, n_layers=1):
-        super(DecoderRNN, self).__init__()
-        self.n_layers = n_layers
-        self.hidden_size = hidden_size
-
-        self.embedding = nn.Embedding(output_size, hidden_size)
-        self.gru = nn.GRU(hidden_size, hidden_size)
-        self.out = nn.Linear(hidden_size, output_size)
-        self.softmax = nn.LogSoftmax()
-
-    def forward(self, input, hidden):
-        output = self.embedding(input).view(1, 1, -1)
-        for i in range(self.n_layers):
-            output = F.relu(output)
-            output, hidden = self.gru(output, hidden)
-        output = self.softmax(self.out(output[0]))
-        return output, hidden
-
-    def initHidden(self):
-        result = Variable(torch.zeros(1, 1, self.hidden_size))
-        if use_cuda:
-            return result.cuda()
-        else:
-            return result
-
-######################################################################
-# I encourage you to train and observe the results of this model, but to
-# save space we'll be going straight for the gold and introducing the
-# Attention Mechanism.
-#
-
 
 ######################################################################
 # Attention Decoder
@@ -464,7 +321,7 @@ class DecoderRNN(nn.Module):
 #
 
 class AttnDecoderRNN(nn.Module):
-    def __init__(self, hidden_size, output_size, n_layers=1, dropout_p=0.1, max_length=MAX_LENGTH):
+    def __init__(self, hidden_size, output_size, max_length, n_layers=1, dropout_p=0.1):
         super(AttnDecoderRNN, self).__init__()
         self.hidden_size = hidden_size
         self.output_size = output_size
@@ -514,7 +371,7 @@ class ClassifierRNN(nn.Module):
         self.embedding = nn.Embedding(input_size, hidden_size)
         self.embedding.weight.data.copy_(torch.from_numpy(wordEmbeddings))
         self.gru = nn.GRU(hidden_size, hidden_size)
-	self.output2label = nn.Linear(hidden_size, n_classes)
+        self.output2label = nn.Linear(hidden_size, n_classes)
         self.softmax = nn.LogSoftmax()
 
     def forward(self, input, hidden):
@@ -522,7 +379,7 @@ class ClassifierRNN(nn.Module):
         output = embedded
         for i in range(self.n_layers):
             output, hidden = self.gru(output, hidden)
-	output = self.output2label(output[0])
+        output = self.output2label(output[0])
         output = self.softmax(output)
         return output, hidden
 
@@ -571,7 +428,7 @@ def variableFromSentence(lang, sentence):
         return result
 
 
-def variablesFromPair(pair):
+def variablesFromPair(lang, pair):
     input_variable = variableFromSentence(lang, pair[0])
     target_variable = variableFromSentence(lang, pair[1])
     return (input_variable, target_variable)
@@ -607,7 +464,7 @@ def variablesFromPair(pair):
 teacher_forcing_ratio = 0.5
 
 
-def pretrainGenerator(input_variable, target_variable, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion, max_length=MAX_LENGTH):
+def pretrainGenerator(input_variable, target_variable, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion, max_length):
     encoder_hidden = encoder.initHidden()
 
     encoder_optimizer.zero_grad()
@@ -663,7 +520,7 @@ def pretrainGenerator(input_variable, target_variable, encoder, decoder, encoder
 
     return loss.data[0] / target_length
 
-def pretrainDiscriminator(input_variable, true_label_tensor, classifier, classifier_optimizer, criterion, max_length=MAX_LENGTH):
+def pretrainDiscriminator(input_variable, true_label_tensor, classifier, classifier_optimizer, criterion):
     classifier_hidden = classifier.initHidden()
     classifier_optimizer.zero_grad()
     input_length = input_variable.size()[0]
@@ -713,7 +570,7 @@ def timeSince(since, percent):
 # of examples, time so far, estimated time) and average loss.
 #
 
-def pretrainGeneratorIters(encoder, decoder, n_iters, print_every=1000, plot_every=100, learning_rate=0.01):
+def pretrainGeneratorIters(lang, pairs, encoder, decoder, max_sent_len, n_iters, print_every=1000, plot_every=100, learning_rate=0.01):
     start = time.time()
     plot_losses = []
     print_loss_total = 0  # Reset every print_every
@@ -721,7 +578,7 @@ def pretrainGeneratorIters(encoder, decoder, n_iters, print_every=1000, plot_eve
 
     encoder_optimizer = optim.SGD(encoder.parameters(), lr=learning_rate)
     decoder_optimizer = optim.SGD(decoder.parameters(), lr=learning_rate)
-    training_pairs = [variablesFromPair(random.choice(pairs))
+    training_pairs = [variablesFromPair(lang, random.choice(pairs))
                       for i in range(n_iters)]
     criterion = nn.NLLLoss()
 
@@ -729,9 +586,9 @@ def pretrainGeneratorIters(encoder, decoder, n_iters, print_every=1000, plot_eve
         training_pair = training_pairs[iter - 1]
         input_variable = training_pair[0]
         target_variable = training_pair[1]
-        
+
         loss = pretrainGenerator(input_variable, target_variable, encoder,
-                     decoder, encoder_optimizer, decoder_optimizer, criterion)
+                     decoder, encoder_optimizer, decoder_optimizer, criterion, max_sent_len)
         
         print_loss_total += loss
         plot_loss_total += loss
@@ -749,7 +606,7 @@ def pretrainGeneratorIters(encoder, decoder, n_iters, print_every=1000, plot_eve
 
     # showPlot(plot_losses)
 
-def pretrainDiscriminatorIters(classifier, n_iters, print_every=1000, plot_every=100, learning_rate=0.01):
+def pretrainDiscriminatorIters(pairs, classifier, n_iters, print_every=1000, plot_every=100, learning_rate=0.01):
     start = time.time()
     plot_losses = []
     print_loss_total = 0  # Reset every print_every
@@ -757,9 +614,13 @@ def pretrainDiscriminatorIters(classifier, n_iters, print_every=1000, plot_every
     
     classifier_optimizer = optim.SGD(classifier.parameters(), lr=learning_rate)
     informal_label = 0
-    informal_label_tensor = Variable(torch.cuda.LongTensor([informal_label]))
+    informal_label_tensor = Variable(torch.LongTensor([informal_label]))
+    if use_cuda:
+        informal_label_tensor = informal_label_tensor.cuda()
     formal_label = 1
-    formal_label_tensor = Variable(torch.cuda.LongTensor([formal_label]))
+    formal_label_tensor = Variable(torch.LongTensor([formal_label]))
+    if use_cuda:
+        formal_label_tensor = formal_label_tensor.cuda()
     informal_data = [(variableFromSentence('en', pair[0]), informal_label_tensor) for pair in pairs]
     formal_data = [(variableFromSentence('en', pair[1]), formal_label_tensor) for pair in pairs]
     data = informal_data + formal_data
@@ -769,15 +630,15 @@ def pretrainDiscriminatorIters(classifier, n_iters, print_every=1000, plot_every
     corr = 0
     total = 0
     for iter in range(1, n_iters + 1):
-	sentence = training_data[iter-1][0]
-	label = training_data[iter-1][1]
+        sentence = training_data[iter-1][0]
+        label = training_data[iter-1][1]
         output, loss = pretrainDiscriminator(sentence, label, classifier, classifier_optimizer, criterion)
         top_n, top_i = output.data.topk(1)
         predicted_label = top_i[0][0]
-	if predicted_label == label.data[0]:
-	    corr += 1
-	total += 1
-	print_loss_total += loss
+        if predicted_label == label.data[0]:
+            corr += 1
+        total += 1
+        print_loss_total += loss
         plot_loss_total += loss
 
         if iter % print_every == 0:
@@ -785,9 +646,9 @@ def pretrainDiscriminatorIters(classifier, n_iters, print_every=1000, plot_every
             print_loss_total = 0
             print('%s (%d %d%%) %.4f' % (timeSince(start, iter / n_iters),
                                          iter, iter / n_iters * 100, print_loss_avg))            
-	    print('Acc %f' % (corr*1.0 / total))
+        print('Acc %f' % (corr*1.0 / total))
 
-def trainGANIters(encoder, decoder, classifier, n_iters, print_every=1000, plot_every=100, learning_rate=0.01):
+def trainGANIters(lang, pairs, encoder, decoder, classifier, max_sent_len, n_iters, print_every=1000, plot_every=100, learning_rate=0.01):
     start = time.time()
     plot_losses = []
 
@@ -797,10 +658,13 @@ def trainGANIters(encoder, decoder, classifier, n_iters, print_every=1000, plot_
     criterion = nn.NLLLoss()
 
     informal_label = 0
-    informal_label_tensor = Variable(torch.cuda.LongTensor([informal_label]))
+    informal_label_tensor = Variable(torch.LongTensor([informal_label]))
+    if use_cuda:
+        informal_label_tensor = informal_label_tensor.cuda()
     formal_label = 1
-    formal_label_tensor = Variable(torch.cuda.LongTensor([formal_label]))
-
+    formal_label_tensor = Variable(torch.LongTensor([formal_label]))
+    if use_cuda:
+        formal_label_tensor = formal_label_tensor.cuda()
     d_total = 0
     d_corr = 0
     d_loss_total = 0  # Reset every print_every
@@ -808,39 +672,39 @@ def trainGANIters(encoder, decoder, classifier, n_iters, print_every=1000, plot_
     g_loss_total = 0  # Reset every print_every
 
     for iter in range(1, n_iters + 1):
-	for i in range(d_iters):
-	    training_pair = variablesFromPair(random.choice(pairs))
+        for i in range(d_iters):
+            training_pair = variablesFromPair(random.choice(pairs))
             input_variable = training_pair[0]
             real_target_variable = training_pair[1]
-            fake_output_words, attentions = evaluateGenerator(encoder, decoder, input_variable)
+            fake_output_words, attentions = evaluateGenerator(lang, encoder, decoder, input_variable, max_sent_len)
             fake_target_variable = ' '.join(fake_output_words)
             output, loss = pretrainDiscriminator(real_target_variable, formal_label_tensor, \
-						classifier, classifier_optimizer, criterion)
+                                                classifier, classifier_optimizer, criterion)
             top_n, top_i = output.data.topk(1)
             predicted_label = top_i[0][0]
-	    if predicted_label == formal_label_tensor.data[0]:
-	        d_corr += 1
-	    d_total += 1
-	    d_loss_total += loss
+            if predicted_label == formal_label_tensor.data[0]:
+                d_corr += 1
+            d_total += 1
+            d_loss_total += loss
 
             output, loss = pretrainDiscriminator(fake_target_variable, informal_label_tensor, \
-						classifier, classifier_optimizer, criterion)
+                                                classifier, classifier_optimizer, criterion)
             top_n, top_i = output.data.topk(1)
             predicted_label = top_i[0][0]
-	    if predicted_label == informal_label_tensor.data[0]:
-	        d_corr += 1
-	    d_total += 1
-	    d_loss_total += loss
+            if predicted_label == informal_label_tensor.data[0]:
+                d_corr += 1
+            d_total += 1
+            d_loss_total += loss
 
         for i in range(g_iters):
             training_pair = variablesFromPair(random.choice(pairs))
             input_variable = training_pair[0]
             real_target_variable = training_pair[1]
      
-            fake_output_words, attentions = evaluateGenerator(encoder, decoder, input_variable)
+            fake_output_words, attentions = evaluateGenerator(lang, encoder, decoder, input_variable, max_sent_len)
             fake_target_variable = ' '.join(fake_output_words)
             
-	    pred_label = evaluateDiscriminator(classifier, fake_target_variable)
+            pred_label = evaluateDiscriminator(classifier, fake_target_variable)
 
             loss = train(input_variable, target_variable, encoder,
                          decoder, encoder_optimizer, decoder_optimizer, criterion)
@@ -886,7 +750,7 @@ def showPlot(points):
 # attention outputs for display later.
 #
 
-def evaluateGenerator(encoder, decoder, sentence, max_length=MAX_LENGTH):
+def evaluateGenerator(lang, encoder, decoder, sentence, max_length):
     input_variable = variableFromSentence(lang, sentence)
     input_length = input_variable.size()[0]
     encoder_hidden = encoder.initHidden()
@@ -941,25 +805,25 @@ def evaluateDiscriminator(classifier, sentence):
 # input, target, and output to make some subjective quality judgements:
 #
 
-def evaluateGeneratorRandomly(encoder, decoder, n=10):
+def evaluateGeneratorRandomly(lang, pairs, encoder, decoder, max_sent_len, n=10):
     for i in range(n):
         pair = random.choice(pairs)
         print('>', pair[0])
         print('=', pair[1])
-        output_words, attentions = evaluateGenerator(encoder, decoder, pair[0])
+        output_words, attentions = evaluateGenerator(lang, encoder, decoder, pair[0], max_sent_len)
         output_sentence = ' '.join(output_words)
         print('<', output_sentence)
         print('')
 
-def evaluateDiscriminatorRandomly(classifier, n=10):
+def evaluateDiscriminatorRandomly(pairs, classifier, n=10):
     for i in range(n):
-	pair = random.choice(pairs)
-	pred_label = evaluateDiscriminator(classifier, pair[0])
-	print(pair[0])
-	print('True:%d Pred:%d' % (0, pred_label))
-	pred_label = evaluateDiscriminator(classifier, pair[1])
-	print(pair[1])
-	print('True:%d Pred:%d' % (1, pred_label))
+        pair = random.choice(pairs)
+        pred_label = evaluateDiscriminator(classifier, pair[0])
+        print(pair[0])
+        print('True:%d Pred:%d' % (0, pred_label))
+        pred_label = evaluateDiscriminator(classifier, pair[1])
+        print(pair[1])
+        print('True:%d Pred:%d' % (1, pred_label))
 
 ######################################################################
 # Training and Evaluating
@@ -979,106 +843,48 @@ def evaluateDiscriminatorRandomly(classifier, n=10):
 #    evaluate, and continue training later. Comment out the lines where the
 #    encoder and decoder are initialized and run ``trainIters`` again.
 #
-encoder1 = EncoderRNN(lang.n_words, hidden_size, np.array(lang.wordEmbeddings))
-attn_decoder1 = AttnDecoderRNN(hidden_size, lang.n_words, 1, dropout_p=0.1)
-classifier = ClassifierRNN(lang.n_words, hidden_size, np.array(lang.wordEmbeddings))
 
-if use_cuda:
-    encoder1 = encoder1.cuda()
-    attn_decoder1 = attn_decoder1.cuda()
-    classifier = classifier.cuda()
-
-pretrainGeneratorIters(encoder1, attn_decoder1, 75000, print_every=5000)
-# pretrainGeneratorIters(encoder1, attn_decoder1, 10, print_every=1)
-pretrainDiscriminatorIters(classifier, 75000, print_every=5000)
-# pretrainDiscriminatorIters(classifier, 10, print_every=1)
-
-######################################################################
-#
-
-evaluateGeneratorRandomly(encoder1, attn_decoder1)
-evaluateDiscriminatorRandomly(classifier)
-
-######################################################################
-# Visualizing Attention
-# ---------------------
-#
-# A useful property of the attention mechanism is its highly interpretable
-# outputs. Because it is used to weight specific encoder outputs of the
-# input sequence, we can imagine looking where the network is focused most
-# at each time step.
-#
-# You could simply run ``plt.matshow(attentions)`` to see attention output
-# displayed as a matrix, with the columns being input steps and rows being
-# output steps:
-#
-
-# output_words, attentions = evaluate(
-#     encoder1, attn_decoder1, "I have a mind to strike thee ere thou speak’st.")
-# plt.matshow(attentions.numpy())
-
-
-######################################################################
-# For a better viewing experience we will do the extra work of adding axes
-# and labels:
-#
-
-def showAttention(input_sentence, output_words, attentions):
-    # Set up figure with colorbar
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-    cax = ax.matshow(attentions.numpy(), cmap='bone')
-    fig.colorbar(cax)
-
-    # Set up axes
-    ax.set_xticklabels([''] + input_sentence.split(' ') +
-                       ['<EOS>'], rotation=90)
-    ax.set_yticklabels([''] + output_words)
-
-    # Show label at every tick
-    ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
-    ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
-
-    plt.show()
-
-
-def evaluateAndShowAttention(input_sentence):
-    output_words, attentions = evaluateGenerator(
-        encoder1, attn_decoder1, input_sentence)
+def evaluateAndShowAttention(lang, encoder1, attn_decoder1, input_sentence, max_sent_len):
+    output_words, attentions = evaluateGenerator(lang, 
+        encoder1, attn_decoder1, input_sentence, max_sent_len)
     print('input =', input_sentence)
     print('output =', ' '.join(output_words))
-    # showAttention(input_sentence, output_words, attentions)
 
-#evaluateAndShowAttention("yeah um ....... i guess that 's a no !")
+def main(args):
+    word2vec_model = gensim.models.KeyedVectors.load_word2vec_format(args.word2vec_pretrained_model, binary=True)
+    lang, pairs = prepareData(args.informal_file, args.formal_file, word2vec_model, args.hidden_size, args.max_sent_len)
+    print(random.choice(pairs))
+    encoder1 = EncoderRNN(lang.n_words, args.hidden_size, np.array(lang.wordEmbeddings))
+    attn_decoder1 = AttnDecoderRNN(args.hidden_size, lang.n_words, args.max_sent_len, 1, dropout_p=0.1)
+    classifier = ClassifierRNN(lang.n_words, args.hidden_size, np.array(lang.wordEmbeddings))
+    
+    if use_cuda:
+        encoder1 = encoder1.cuda()
+        attn_decoder1 = attn_decoder1.cuda()
+        classifier = classifier.cuda()
+    
+    pretrainGeneratorIters(lang, pairs, encoder1, attn_decoder1, args.max_sent_len, 75000, print_every=5000)
+    # pretrainGeneratorIters(lang, pairs, encoder1, attn_decoder1, args.max_sent_len, 10, print_every=1)
+    pretrainDiscriminatorIters(pairs, classifier, 75000, print_every=5000)
+    # pretrainDiscriminatorIters(pairs, classifier, 10, print_every=1)
+    
+    evaluateGeneratorRandomly(lang, pairs, encoder1, attn_decoder1, args.max_sent_len)
+    evaluateDiscriminatorRandomly(pairs, classifier)
 
-#evaluateAndShowAttention("no , his movements r not flexible")
+    evaluateAndShowAttention(lang, encoder1, attn_decoder1, "yeah um ....... i guess that 's a no !", args.max_sent_len)
+    evaluateAndShowAttention(lang, encoder1, attn_decoder1, "no , his movements r not flexible", args.max_sent_len)
+    evaluateAndShowAttention(lang, encoder1, attn_decoder1, "no he does not , it 's probably a rumor", args.max_sent_len)
+    evaluateAndShowAttention(lang, encoder1, attn_decoder1, "i like bruce willis he makes good movies", args.max_sent_len)
+    evaluateAndShowAttention(lang, encoder1, attn_decoder1, "he 's just got a sexier look about him .", args.max_sent_len)
 
-#evaluateAndShowAttention("no he does not , it 's probably a rumor")
-
-#evaluateAndShowAttention("i like bruce willis he makes good movies")
-
-#evaluateAndShowAttention("he 's just got a sexier look about him .")
-
-######################################################################
-# Exercises
-# =========
-#
-# -  Try with a different dataset
-#
-#    -  Another language pair
-#    -  Human → Machine (e.g. IOT commands)
-#    -  Chat → Response
-#    -  Question → Answer
-#
-# -  Replace the embedding pre-trained word embeddings such as word2vec or
-#    GloVe
-# -  Try with more layers, more hidden units, and more sentences. Compare
-#    the training time and results.
-# -  If you use a translation file where pairs have two of the same phrase
-#    (``I am test \t I am test``), you can use this as an autoencoder. Try
-#    this:
-#
-#    -  Train as an autoencoder
-#    -  Save only the Encoder network
-#    -  Train a new Decoder for translation from there
-#
+if __name__ == "__main__":
+    argparser = argparse.ArgumentParser(sys.argv[0])
+    argparser.add_argument("--informal_file", type = str)
+    argparser.add_argument("--formal_file", type = str)
+    argparser.add_argument("--word2vec_pretrained_model", type = str)
+    argparser.add_argument("--max_sent_len", type = int, default=30)
+    argparser.add_argument("--hidden_size", type=int, default=300)
+    args = argparser.parse_args()
+    print(args)
+    print
+    main(args)
