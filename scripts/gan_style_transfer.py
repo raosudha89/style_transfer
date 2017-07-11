@@ -805,7 +805,7 @@ def evaluateDiscriminator(classifier, sentence):
 # input, target, and output to make some subjective quality judgements:
 #
 
-def evaluateGeneratorRandomly(lang, pairs, encoder, decoder, max_sent_len, n=10):
+def evaluateGeneratorRandomly(lang, pairs, encoder, decoder, max_sent_len, n=100):
     for i in range(n):
         pair = random.choice(pairs)
         print('>', pair[0])
@@ -871,16 +871,16 @@ def main(args):
     evaluateGeneratorRandomly(lang, pairs, encoder1, attn_decoder1, args.max_sent_len)
     evaluateDiscriminatorRandomly(pairs, classifier)
 
-    evaluateAndShowAttention(lang, encoder1, attn_decoder1, "yeah um ....... i guess that 's a no !", args.max_sent_len)
-    evaluateAndShowAttention(lang, encoder1, attn_decoder1, "no , his movements r not flexible", args.max_sent_len)
-    evaluateAndShowAttention(lang, encoder1, attn_decoder1, "no he does not , it 's probably a rumor", args.max_sent_len)
-    evaluateAndShowAttention(lang, encoder1, attn_decoder1, "i like bruce willis he makes good movies", args.max_sent_len)
-    evaluateAndShowAttention(lang, encoder1, attn_decoder1, "he 's just got a sexier look about him .", args.max_sent_len)
+    informal_test = open(args.informal_test_file, 'r')
+    for line in informal_test.readlines():
+        sent = line.strip('\n').strip()    
+        evaluateAndShowAttention(lang, encoder1, attn_decoder1, sent, args.max_sent_len)
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser(sys.argv[0])
     argparser.add_argument("--informal_file", type = str)
     argparser.add_argument("--formal_file", type = str)
+    argparser.add_argument("--informal_test_file", type = str)
     argparser.add_argument("--word2vec_pretrained_model", type = str)
     argparser.add_argument("--max_sent_len", type = int, default=30)
     argparser.add_argument("--hidden_size", type=int, default=300)
