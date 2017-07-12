@@ -7,7 +7,7 @@ from collections import defaultdict
 def write_to_file(curr_maincat, output_dir, output_sents):
     output_file = open(os.path.join(output_dir, curr_maincat), 'a')
     for sent in output_sents:
-        output_file.write(sent + '\n')
+        output_file.write(sent.encode('utf-8') + '\n')
     output_file.close()
         
 if __name__ == '__main__':
