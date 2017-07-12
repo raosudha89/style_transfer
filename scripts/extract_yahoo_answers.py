@@ -4,6 +4,12 @@ import nltk
 nltk.download('punkt')
 from collections import defaultdict
 
+def write_to_file(curr_maincat, output_dir, output_sents):
+    output_file = open(os.path.join(output_dir, curr_maincat), 'a')
+    for sent in output_sents:
+        output_file.write(sent + '\n')
+    output_file.close()
+        
 if __name__ == '__main__':
     xml_file = sys.argv[1]
     output_dir = sys.argv[2]
@@ -14,7 +20,9 @@ if __name__ == '__main__':
             uri = elem.text
         if event == 'start' and (elem.tag == 'maincat' and elem.text):
             curr_maincat = elem.text.strip()
-            category_sents[curr_maincat] += output_sents
+            curr_maincat = curr_maincat.replace('&', '')
+            curr_maincat = '_'.join(curr_maincat.split())
+            write_to_file(curr_maincat, output_dir, output_sents)
             output_sents = []
         if event == 'start' and (elem.tag == 'answer_item' or elem.tag == 'content'):
             text = elem.text
@@ -27,7 +35,3 @@ if __name__ == '__main__':
             except:
                 continue
             output_sents += [s for s in sents if len(s.split()) > 5 and len(s.split()) < 20 and 'http' not in s and 'www' not in s and 'WWW' not in s]
-    for category in category_sents.keys():
-        output_file = open(os.path.join(output_dir,'_'.join(category.split())), 'w')
-        for sent in category_sents[category]:
-            output_file.write(sent + '\n')
