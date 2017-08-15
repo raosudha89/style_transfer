@@ -17,7 +17,7 @@ if __name__ == '__main__':
         sentence = sentence.strip()
         if len(sentence.split()) < 5 or len(sentence.split()) > 20:
             continue
-        if float(avg_score) >= 1.5:
+        if float(avg_score) >= 1.0:
             formal_sentences_file.write(sentence+'\n')
 
             
