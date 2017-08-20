@@ -57,6 +57,7 @@ if __name__ == '__main__':
         if event == 'start' and (elem.tag == 'answer_item' or elem.tag == 'content'):
             output_sents = []
             text = elem.text
+            pdb.set_trace()
             if not text:
                 continue
             try:
@@ -66,3 +67,4 @@ if __name__ == '__main__':
             except:
                 continue
             output_sents += [s for s in sents if len(s.split()) > 5 and len(s.split()) < 20 and 'http' not in s and 'www' not in s and 'WWW' not in s]
+            pdb.set_trace()

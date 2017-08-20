@@ -5,7 +5,7 @@ from random import shuffle
 if __name__ == '__main__':
     answers_csv = open(sys.argv[1])
     answers_reader = csv.reader(answers_csv, delimiter='\t')
-    formal_sentences_file = open(sys.argv[2], 'w')
+    informal_sentences_file = open(sys.argv[2], 'w')
     for row in answers_reader:
         # avg_score, scores, id, sentence = row
         if len(row) == 3:
@@ -15,9 +15,9 @@ if __name__ == '__main__':
         if 'http' in sentence:
             continue
         sentence = sentence.strip()
-        if len(sentence.split()) < 5 or len(sentence.split()) > 20:
+        if len(sentence.split()) < 5 or len(sentence.split()) > 25:
             continue
-        if float(avg_score) >= 0:
-            formal_sentences_file.write(sentence+'\n')
+        if float(avg_score) <= -1.5:
+            informal_sentences_file.write(sentence+'\n')
 
             

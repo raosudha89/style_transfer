@@ -277,9 +277,10 @@ def extract_features(sentences, stanford_annotations, stanford_parse_trees, args
 	for i in range(len(features)):
 		[feature_set, dependency_tuple_dict, unigram_dict, bigram_dict, trigram_dict, lexical_production_dict] = features[i]
 		dependency_tuple_feature_set.append(dependency_tuple_dict)
-		unigram_feature_set.append(remove_less_frequent(unigram_dict, UNIGRAM_DICT, 1))
-		bigram_feature_set.append(remove_less_frequent(bigram_dict, BIGRAM_DICT, 2))
-		trigram_feature_set.append(remove_less_frequent(trigram_dict, TRIGRAM_DICT, 3))
+		if args.ngram:
+			unigram_feature_set.append(remove_less_frequent(unigram_dict, UNIGRAM_DICT, 1))
+			bigram_feature_set.append(remove_less_frequent(bigram_dict, BIGRAM_DICT, 2))
+			trigram_feature_set.append(remove_less_frequent(trigram_dict, TRIGRAM_DICT, 3))
 		lexical_production_feature_set.append(lexical_production_dict)
 		other_feature_set.append(feature_set)
 	
@@ -392,6 +393,7 @@ def main(args):
 	print time.time() - start_time
 	
 	features, labels = combine_shuffle(features, len(modern_sentences))
+	print 'No. of features %d ' % len(features[0])
 	
 	# ridge_regression = linear_model.Ridge(alpha = .5)
 	svm_classifier = svm.SVC()
