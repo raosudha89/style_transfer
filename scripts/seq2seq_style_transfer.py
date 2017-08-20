@@ -125,9 +125,11 @@ class Lang:
         self.word2count = {}
         self.index2word = {0: "SOS", 1: "EOS"}
         self.n_words = 2  # Count SOS and EOS
+        self.hidden_size = hidden_size
         self.wordEmbeddings = []
         self.wordEmbeddings.append(np.random.uniform(-0.25,0.25,hidden_size))
         self.wordEmbeddings.append(np.random.uniform(-0.25,0.25,hidden_size))
+        self.n_unk_words = 0
 
     def addSentence(self, sentence, word2vec_model):
         for word in sentence.split(' '):
@@ -138,13 +140,15 @@ class Lang:
             self.word2index[word] = self.n_words
             self.word2count[word] = 1
             self.index2word[self.n_words] = word
-            try:
-                self.wordEmbeddings.append(word2vec_model[word])
-            except:
-                # print(word)
-                self.wordEmbeddings.append(word2vec_model['UNKNOWN'])
-                # self.wordEmbeddings.append(np.random.uniform(-0.25,0.25,hidden_size))
             self.n_words += 1
+            if word2vec_model:
+                try:
+                    self.wordEmbeddings.append(word2vec_model[word])
+                except:
+                    self.wordEmbeddings.append(np.random.uniform(-0.25,0.25,self.hidden_size))
+                    self.n_unk_words += 1
+            else:
+                self.wordEmbeddings.append(np.random.uniform(-0.25,0.25,self.hidden_size))
         else:
             self.word2count[word] += 1
 
@@ -166,13 +170,15 @@ def unicodeToAscii(s):
 # Lowercase, trim, remove non-letter characters and tokenize
 
 def tokenizeSent(s, max_sent_len):
-    s = unicodeToAscii(s.lower().strip())
-    s = re.sub(r"([.!?])", r" \1", s)
-    s = re.sub(r"[^a-zA-Z.!?]+", r" ", s)
-    tokens = nltk.word_tokenize(s)
+    # s = unicodeToAscii(s.lower().strip())
+    # s = re.sub(r"([.!?])", r" \1", s)
+    # s = re.sub(r"[^a-zA-Z.!?]+", r" ", s)
+    # tokens = nltk.word_tokenize(s)
+    tokens = s.split()
     if len(tokens) > max_sent_len:
         s = re.sub(r'[\? \. \! ]+(?=[\? \. \! ])', '', s)
-        tokens = nltk.word_tokenize(s)
+        # tokens = nltk.word_tokenize(s)
+        tokens = s.split()
         if len(tokens) > max_sent_len:
             return None
     if len(tokens) == max_sent_len:
@@ -189,11 +195,10 @@ def tokenizeSent(s, max_sent_len):
 
 def prepareData(informal_file, formal_file, word2vec_model, hidden_size, max_sent_len):
     print("Reading lines...")
-
+    start_time = time.time()
     # Read the file and split into lines
     informal = open(informal_file, 'r', encoding='utf-8')
     formal = open(formal_file, 'r', encoding='utf-8')
-
     pairs = []
     informal_lines = informal.readlines()
     formal_lines = formal.readlines()
@@ -206,13 +211,19 @@ def prepareData(informal_file, formal_file, word2vec_model, hidden_size, max_sen
             continue
         pairs.append([tokenized_informal_sent, tokenized_formal_sent])
     print("Read %s sentence pairs" % len(pairs))
-    lang = Lang('en', hidden_size)
-    for pair in pairs:
-        lang.addSentence(pair[0], word2vec_model)
-        lang.addSentence(pair[1], word2vec_model)
+    print("Time taken " + str(time.time() - start_time))
+    lang_informal = Lang('informal', hidden_size)
+    lang_formal = Lang('formal', hidden_size)
+    for informal_sent, formal_sent in pairs:
+        lang_informal.addSentence(informal_sent, word2vec_model)
+        lang_formal.addSentence(formal_sent, word2vec_model)
     print("Counted words:")
-    print(lang.name, lang.n_words)
-    return lang, pairs
+    print(lang_informal.name, lang_informal.n_words)
+    print(lang_formal.name, lang_formal.n_words)
+    print("Unknown words:")
+    print(lang_informal.name, lang_informal.n_unk_words)
+    print(lang_formal.name, lang_formal.n_unk_words)
+    return lang_informal, lang_formal, pairs
 
 ######################################################################
 # The Seq2Seq Model
@@ -412,9 +423,9 @@ def variableFromSentence(lang, sentence):
         return result
 
 
-def variablesFromPair(lang, pair):
-    input_variable = variableFromSentence(lang, pair[0])
-    target_variable = variableFromSentence(lang, pair[1])
+def variablesFromPair(lang_informal, lang_formal, pair):
+    input_variable = variableFromSentence(lang_informal, pair[0])
+    target_variable = variableFromSentence(lang_formal, pair[1])
     return (input_variable, target_variable)
 
 
@@ -539,7 +550,7 @@ def timeSince(since, percent):
 # of examples, time so far, estimated time) and average loss.
 #
 
-def trainIters(lang, pairs, encoder, decoder, max_sent_len, hidden_size, n_iters, print_every=1000, plot_every=100, learning_rate=0.01):
+def trainIters(lang_informal, lang_formal, pairs, encoder, decoder, max_sent_len, hidden_size, n_iters, print_every=1000, plot_every=100, learning_rate=0.01):
     start = time.time()
     plot_losses = []
     print_loss_total = 0  # Reset every print_every
@@ -547,7 +558,7 @@ def trainIters(lang, pairs, encoder, decoder, max_sent_len, hidden_size, n_iters
 
     encoder_optimizer = optim.SGD(encoder.parameters(), lr=learning_rate)
     decoder_optimizer = optim.SGD(decoder.parameters(), lr=learning_rate)
-    training_pairs = [variablesFromPair(lang, random.choice(pairs))
+    training_pairs = [variablesFromPair(lang_informal, lang_formal, random.choice(pairs))
                       for i in range(n_iters)]
     criterion = nn.NLLLoss()
 
@@ -566,6 +577,7 @@ def trainIters(lang, pairs, encoder, decoder, max_sent_len, hidden_size, n_iters
             print_loss_total = 0
             print('%s (%d %d%%) %.4f' % (timeSince(start, iter / n_iters),
                                          iter, iter / n_iters * 100, print_loss_avg))
+            # evaluateRandomly(lang_informal, lang_formal, pairs, encoder, decoder, max_sent_len)
 
         if iter % plot_every == 0:
             plot_loss_avg = plot_loss_total / plot_every
@@ -607,8 +619,8 @@ def showPlot(points):
 # attention outputs for display later.
 #
 
-def evaluate(lang, encoder, decoder, sentence, max_length):
-    input_variable = variableFromSentence(lang, sentence)
+def evaluate(lang_informal, lang_formal, encoder, decoder, sentence, max_length):
+    input_variable = variableFromSentence(lang_informal, sentence)
     input_length = input_variable.size()[0]
     encoder_hidden = encoder.initHidden()
 
@@ -638,7 +650,7 @@ def evaluate(lang, encoder, decoder, sentence, max_length):
             decoded_words.append('<EOS>')
             break
         else:
-            decoded_words.append(lang.index2word[ni])
+            decoded_words.append(lang_formal.index2word[ni])
         
         decoder_input = Variable(torch.LongTensor([[ni]]))
         decoder_input = decoder_input.cuda() if use_cuda else decoder_input
@@ -651,18 +663,18 @@ def evaluate(lang, encoder, decoder, sentence, max_length):
 # input, target, and output to make some subjective quality judgements:
 #
 
-def evaluateRandomly(lang, pairs, encoder, decoder, max_sent_len, n=100):
+def evaluateRandomly(lang_informal, lang_formal, pairs, encoder, decoder, max_sent_len, n=25):
     for i in range(n):
         pair = random.choice(pairs)
         print('>', pair[0])
         print('=', pair[1])
-        output_words, attentions = evaluate(lang, encoder, decoder, pair[0], max_sent_len)
+        output_words, attentions = evaluate(lang_informal, lang_formal, encoder, decoder, pair[0], max_sent_len)
         output_sentence = ' '.join(output_words)
         print('<', output_sentence)
         print('')
 
-def evaluateAndShowAttention(lang, encoder1, attn_decoder1, input_sentence, max_sent_len):
-    output_words, attentions = evaluate(lang, encoder1, attn_decoder1, input_sentence, max_sent_len)
+def evaluateAndShowAttention(lang_informal, lang_formal, encoder1, attn_decoder1, input_sentence, max_sent_len):
+    output_words, attentions = evaluate(lang_informal, lang_formal, encoder1, attn_decoder1, input_sentence, max_sent_len)
     print('input =', input_sentence)
     print('output =', ' '.join(output_words))
 
@@ -685,22 +697,26 @@ def evaluateAndShowAttention(lang, encoder1, attn_decoder1, input_sentence, max_
 #    encoder and decoder are initialized and run ``trainIters`` again.
 #
 def main(args):
-    word2vec_model = gensim.models.KeyedVectors.load_word2vec_format(args.word2vec_pretrained_model, binary=True)
-    lang, pairs = prepareData(args.informal_file, args.formal_file, word2vec_model, args.hidden_size, args.max_sent_len)
+    if args.word2vec_pretrained_model:
+        word2vec_model = gensim.models.KeyedVectors.load_word2vec_format(args.word2vec_pretrained_model, binary=True)
+    else:
+        word2vec_model = None
+    lang_informal, lang_formal, pairs = prepareData(args.informal_file, args.formal_file, word2vec_model, args.hidden_size, args.max_sent_len)
     print(random.choice(pairs))
-    encoder1 = EncoderRNN(lang.n_words, args.hidden_size, np.array(lang.wordEmbeddings))
-    attn_decoder1 = AttnDecoderRNN(args.hidden_size, lang.n_words, args.max_sent_len, 1, dropout_p=0.1)
+    encoder1 = EncoderRNN(lang_informal.n_words, args.hidden_size, np.array(lang_informal.wordEmbeddings), n_layers=5)
+    attn_decoder1 = AttnDecoderRNN(args.hidden_size, lang_formal.n_words, args.max_sent_len, 5, dropout_p=0.1)
     if use_cuda:
         encoder1 = encoder1.cuda()
         attn_decoder1 = attn_decoder1.cuda()
-    # trainIters(lang, pairs, encoder1, attn_decoder1, args.max_sent_len, args.hidden_size, 10, print_every=1)
-    trainIters(lang, pairs, encoder1, attn_decoder1, args.max_sent_len, args.hidden_size, 100000, print_every=5000)
-    evaluateRandomly(lang, pairs, encoder1, attn_decoder1, args.max_sent_len)
+    # trainIters(lang_informal, lang_formal, pairs, encoder1, attn_decoder1, args.max_sent_len, args.hidden_size, 20, print_every=1)
+    trainIters(lang_informal, lang_formal, pairs, encoder1, attn_decoder1, args.max_sent_len, args.hidden_size, 100000, print_every=5000)
+    evaluateRandomly(lang_informal, lang_formal, pairs, encoder1, attn_decoder1, args.max_sent_len)
 
-    informal_test = open(args.informal_test_file, 'r')
-    for line in informal_test.readlines():
-        sent = line.strip('\n').strip()    
-        evaluateAndShowAttention(lang, encoder1, attn_decoder1, sent, args.max_sent_len)
+    if args.informal_test_file:
+        informal_test = open(args.informal_test_file, 'r')
+        for line in informal_test.readlines():
+            sent = line.strip('\n').strip()    
+            evaluateAndShowAttention(lang_informal, lang_formal, encoder1, attn_decoder1, sent, args.max_sent_len)
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser(sys.argv[0])
@@ -709,7 +725,7 @@ if __name__ == "__main__":
     argparser.add_argument("--informal_test_file", type = str)
     argparser.add_argument("--word2vec_pretrained_model", type = str)
     argparser.add_argument("--max_sent_len", type = int, default=30)
-    argparser.add_argument("--hidden_size", type=int, default=300)
+    argparser.add_argument("--hidden_size", type=int, default=500)
     args = argparser.parse_args()
     print(args)
     print

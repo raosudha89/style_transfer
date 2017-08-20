@@ -408,8 +408,11 @@ def main(args):
 		corpus = train_corpus + test_corpus
 		train_stanford_annotations.update(test_stanford_annotations)
 		stanford_annotations = train_stanford_annotations
-		train_stanford_parse_trees.update(test_stanford_parse_trees)
-		stanford_parse_trees = train_stanford_parse_trees
+		if args.parse:
+			train_stanford_parse_trees.update(test_stanford_parse_trees)
+			stanford_parse_trees = train_stanford_parse_trees
+		else:
+			stanford_parse_trees = None
 	
 	print 'Extracting features...'
 	start_time = time.time()
