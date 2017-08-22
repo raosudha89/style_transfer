@@ -68,7 +68,7 @@ def main(args):
         sentence = expand_contractions(sentence, slangs)
         
         # replace muliple ?/!/. to one
-        sentence = re.sub(r'[\?\.\!]+(?=[\?\.\!])', '', sentence)
+        sentence = re.sub(r'[\? \. \! ]+(?=[\? \. \! ])', '', sentence)
         sentence = re.sub(r'( u[m]+)', '', sentence)
         sentence = re.sub(r'(U[m]+)', '', sentence)
         sentence = re.sub(r'(^u[m]+)', '', sentence)
@@ -78,6 +78,9 @@ def main(args):
         sentence = re.sub(r'[ss]+([s]+)', 'ss', sentence)
         sentence = re.sub(r'[ll]+([l]+)', 'll', sentence)
         
+        if not sentence:
+            output_file.write('\n')
+            continue
         # capitalize first word
         sentence = sentence[0].upper() + sentence[1:]
         sentence = ', '.join([s for s in sentence.split('. ') if s])
