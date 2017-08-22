@@ -15,9 +15,9 @@ if __name__ == '__main__':
         if 'http' in sentence:
             continue
         sentence = sentence.strip()
-        if len(sentence.split()) < 5 or len(sentence.split()) > 20:
+        if len(sentence.split()) < 5 or len(sentence.split()) > 25:
             continue
-        if float(avg_score) <= -1.0:
+        if float(avg_score) <= -1.5:
             informal_sentences_file.write(sentence+'\n')
 
             

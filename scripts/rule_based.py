@@ -1,9 +1,11 @@
+import argparse
 import sys, os, pdb
 reload(sys)  
 sys.setdefaultencoding('utf8')
-import nltk, re
-import argparse
+import nltk
+import re
 import subprocess
+import time
 
 class StanfordAnnotations:
     def __init__(self, token, lemma, pos, ner, head, depRel):
@@ -82,6 +84,9 @@ def main(args):
             output_file.write('\n')
             continue
         # capitalize first word
+        if not sentence:
+            output_file.write('\n')
+            continue
         sentence = sentence[0].upper() + sentence[1:]
         sentence = ', '.join([s for s in sentence.split('. ') if s])
         
@@ -100,14 +105,15 @@ def main(args):
         sentence = sentence.replace('bitch', 'b***')
         
         output_file.write(sentence+'\n')
-        
+    output_file.close()
     if args.grammarly_spellcheck:
+        time.sleep(5) # Wait for the output_file to be written and closed
         program = 'python3 /Users/sudharao/Documents/spellcheck-corpora/benchmark/grammarly/spellcheck_grammarly.py --addr prod.spellcheck.grammarly.com:12345 %s %s' % (args.output_file, args.output_file+'.spell')
-        try:
-            subprocess.check_call(program, shell=True)
-        except:
-            pdb.set_trace()
+        # subprocess.check_call(program, shell=True)
+        os.system(program)
+        time.sleep(5)
         spell_file = open(args.output_file+'.spell', 'r')
+        
         output_spell_checked_file = open(args.output_file+'.spell_checked', 'w')
         for line in spell_file.readlines():
             sentence = line.strip('\n')
@@ -115,6 +121,11 @@ def main(args):
             sentence = re.sub(r'{.+?=>(.+?)\|.+?}', r'\1', sentence)
             # sentence = re.sub(r'{.+?=>(.+?)}', r'\1', sentence)
             output_spell_checked_file.write(sentence+'\n')
+        spell_file.close()
+        output_spell_checked_file.close()
+    sentences_file.close()
+    contractions_expansions_file.close()
+    slangs_file.close()
         
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser(sys.argv[0])
