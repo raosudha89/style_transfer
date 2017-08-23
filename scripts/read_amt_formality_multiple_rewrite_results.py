@@ -6,10 +6,10 @@ if __name__ == '__main__':
     results_csv = open(sys.argv[1])
     results_reader = csv.reader(results_csv, delimiter=',')
     informal_file = open(sys.argv[2], 'w')
-    formal_file_ref1 = open(sys.argv[3]+'1', 'w')
-    formal_file_ref2 = open(sys.argv[3]+'2', 'w')
-    formal_file_ref3 = open(sys.argv[3]+'3', 'w')
-    formal_file_ref4 = open(sys.argv[3]+'4', 'w')
+    formal_file_ref1 = open(sys.argv[3]+'0', 'w')
+    formal_file_ref2 = open(sys.argv[3]+'1', 'w')
+    formal_file_ref3 = open(sys.argv[3]+'2', 'w')
+    formal_file_ref4 = open(sys.argv[3]+'3', 'w')
     sentence_judgements = {}
     i = 0
     sentences_in_order = []
