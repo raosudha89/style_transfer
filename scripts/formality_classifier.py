@@ -340,7 +340,7 @@ def extract_annotations(dataset_stanford_annotations, corpus):
 			sent_annotations.append(word_annotations)
 	return stanford_annotations		
 
-def k_fold_cross_validation(features, labels, K, randomise = False):
+def k_fold_cross_validation(features, labels, K, randomise = True):
 	k_fold = KFold(n_splits=K, shuffle=randomise)
 	labels = numpy.array(labels)
 	for train_index, test_index in k_fold.split(features):
@@ -413,6 +413,10 @@ def main(args):
 			stanford_parse_trees = train_stanford_parse_trees
 		else:
 			stanford_parse_trees = None
+	else:
+		corpus = train_corpus
+		stanford_annotations = train_stanford_annotations
+		stanford_parse_trees = train_stanford_parse_trees
 	
 	print 'Extracting features...'
 	start_time = time.time()
@@ -460,11 +464,21 @@ def main(args):
 		predicted_test_dataset_labels = ridge_regression.predict(test_feature_vectors)
 		i = 0
 		test_dataset_predictions_output = open(args.test_dataset_predictions_output_file, 'w')
+		predicted_labels_in_order = []
 		for id, sentence, rating in test_corpus:
 			test_dataset_predictions_output.write('%s\t%s\n' % (predicted_test_dataset_labels[i], sentence))
+			predicted_labels_in_order.append(predicted_test_dataset_labels[i])
 			i += 1
 		print time.time() - start_time
-		
+		if args.test_dataset_with_gold_labels_file:
+			gold_labels_in_order = []
+			test_dataset_with_gold_labels = open(args.test_dataset_with_gold_labels_file, 'r')
+			test_corpus_with_gold_labels = read_data(test_dataset_with_gold_labels)
+			for id, sentence, rating in test_corpus_with_gold_labels:
+				gold_labels_in_order.append(rating)		
+			test_score = stats.spearmanr(gold_labels_in_order, predicted_labels_in_order)[0]
+			print 'Spearman R on Test set: %.2f' % test_score
+
 if __name__ == "__main__":
 	argparser = argparse.ArgumentParser(sys.argv[0])
 	argparser.add_argument("--dataset_file", type = str)
@@ -474,6 +488,7 @@ if __name__ == "__main__":
 	argparser.add_argument("--test_dataset_stanford_annotations_file", type = str)
 	argparser.add_argument("--test_dataset_stanford_parse_file", type = str)
 	argparser.add_argument("--test_dataset_predictions_output_file", type = str)
+	argparser.add_argument("--test_dataset_with_gold_labels_file", type = str)
 	argparser.add_argument("--word2vec_pretrained_model", type = str)
 	argparser.add_argument("--case", dest='case', default=False, action='store_true')
 	argparser.add_argument("--dependency", dest='dependency', default=False, action='store_true')

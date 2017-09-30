@@ -6,4 +6,5 @@ if __name__ == '__main__':
     for line in dataset.readlines():
         parts = line.split('\t')
         sentence = parts[-1]
-        sentences_file.write(sentence + '\n')
+        #sentences_file.write(sentence + '\n')
+        sentences_file.write(sentence)
