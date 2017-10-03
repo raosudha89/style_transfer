@@ -125,30 +125,18 @@ class Lang:
         self.word2count = {}
         self.index2word = {0: "SOS", 1: "EOS"}
         self.n_words = 2  # Count SOS and EOS
-        self.hidden_size = hidden_size
-        self.wordEmbeddings = []
-        self.wordEmbeddings.append(np.random.uniform(-0.25,0.25,hidden_size))
-        self.wordEmbeddings.append(np.random.uniform(-0.25,0.25,hidden_size))
         self.n_unk_words = 0
 
-    def addSentence(self, sentence, word2vec_model):
+    def addSentence(self, sentence):
         for word in sentence.split(' '):
-            self.addWord(word, word2vec_model)
+            self.addWord(word)
 
-    def addWord(self, word, word2vec_model):
+    def addWord(self, word):
         if word not in self.word2index:
             self.word2index[word] = self.n_words
             self.word2count[word] = 1
             self.index2word[self.n_words] = word
             self.n_words += 1
-            if word2vec_model:
-                try:
-                    self.wordEmbeddings.append(word2vec_model[word])
-                except:
-                    self.wordEmbeddings.append(np.random.uniform(-0.25,0.25,self.hidden_size))
-                    self.n_unk_words += 1
-            else:
-                self.wordEmbeddings.append(np.random.uniform(-0.25,0.25,self.hidden_size))
         else:
             self.word2count[word] += 1
 
@@ -193,7 +181,7 @@ def tokenizeSent(s, max_sent_len):
 # -  Make word lists from sentences in pairs
 #
 
-def prepareData(informal_file, formal_file, word2vec_model, hidden_size, max_sent_len):
+def prepareData(informal_file, formal_file, hidden_size, max_sent_len):
     print("Reading lines...")
     start_time = time.time()
     # Read the file and split into lines
@@ -215,8 +203,8 @@ def prepareData(informal_file, formal_file, word2vec_model, hidden_size, max_sen
     lang_informal = Lang('informal', hidden_size)
     lang_formal = Lang('formal', hidden_size)
     for informal_sent, formal_sent in pairs:
-        lang_informal.addSentence(informal_sent, word2vec_model)
-        lang_formal.addSentence(formal_sent, word2vec_model)
+        lang_informal.addSentence(informal_sent)
+        lang_formal.addSentence(formal_sent)
     print("Counted words:")
     print(lang_informal.name, lang_informal.n_words)
     print(lang_formal.name, lang_formal.n_words)
@@ -276,31 +264,30 @@ def prepareData(informal_file, formal_file, word2vec_model, hidden_size, max_sen
 #
 
 class EncoderRNN(nn.Module):
-    def __init__(self, input_size, hidden_size, wordEmbeddings, n_layers=1):
+    def __init__(self, input_size, hidden_size, n_layers=1):
         super(EncoderRNN, self).__init__()
         self.n_layers = n_layers
         self.hidden_size = hidden_size
 
         self.embedding = nn.Embedding(input_size, hidden_size)
-        self.embedding.weight.data.copy_(torch.from_numpy(wordEmbeddings))
-        # self.gru = nn.GRU(hidden_size, hidden_size)
-        self.LSTM = nn.LSTM(hidden_size, hidden_size)
+        self.gru = nn.GRU(hidden_size, hidden_size)
+        # self.LSTM = nn.LSTM(hidden_size, hidden_size)
 
     def forward(self, input, hidden):
         embedded = self.embedding(input).view(1, 1, -1)
         output = embedded
         for i in range(self.n_layers):
-            # output, hidden = self.gru(output, hidden)
-            output, hidden = self.LSTM(output, hidden)
+            output, hidden = self.gru(output, hidden)
+            # output, hidden = self.LSTM(output, hidden)
         return output, hidden
 
     def initHidden(self):
-        # result = Variable(torch.zeros(1, 1, self.hidden_size))
-        result = (Variable(torch.zeros(1, 1, self.hidden_size)), \
-                  Variable(torch.zeros(1, 1, self.hidden_size)))
+        result = Variable(torch.zeros(1, 1, self.hidden_size))
+        # result = (Variable(torch.zeros(1, 1, self.hidden_size)), \
+        #          Variable(torch.zeros(1, 1, self.hidden_size)))
         if use_cuda:
-            # return result.cuda()
-            return (result[0].cuda(), result[1].cuda())
+            return result.cuda()
+            # return (result[0].cuda(), result[1].cuda())
         else:
             return result
 
@@ -351,16 +338,16 @@ class AttnDecoderRNN(nn.Module):
         self.attn = nn.Linear(self.hidden_size * 2, self.max_length)
         self.attn_combine = nn.Linear(self.hidden_size * 2, self.hidden_size)
         self.dropout = nn.Dropout(self.dropout_p)
-        # self.gru = nn.GRU(self.hidden_size, self.hidden_size)
-        self.LSTM = nn.LSTM(self.hidden_size, self.hidden_size)
+        self.gru = nn.GRU(self.hidden_size, self.hidden_size)
+        # self.LSTM = nn.LSTM(self.hidden_size, self.hidden_size)
         self.out = nn.Linear(self.hidden_size, self.output_size)
 
     def forward(self, input, hidden, encoder_output, encoder_outputs):
         embedded = self.embedding(input).view(1, 1, -1)
         embedded = self.dropout(embedded)
 
-        # attn_weights = F.softmax(self.attn(torch.cat((embedded[0], hidden[0]), 1)))
-        attn_weights = F.softmax(self.attn(torch.cat((embedded[0], hidden[0][0]), 1)))
+        attn_weights = F.softmax(self.attn(torch.cat((embedded[0], hidden[0]), 1)))
+        # attn_weights = F.softmax(self.attn(torch.cat((embedded[0], hidden[0][0]), 1)))
         attn_applied = torch.bmm(attn_weights.unsqueeze(0),
                                  encoder_outputs.unsqueeze(0))
 
@@ -369,19 +356,19 @@ class AttnDecoderRNN(nn.Module):
 
         for i in range(self.n_layers):
             output = F.relu(output)
-            # output, hidden = self.gru(output, hidden)
-            output, hidden = self.LSTM(output, hidden)
+            output, hidden = self.gru(output, hidden)
+            # output, hidden = self.LSTM(output, hidden)
 
         output = F.log_softmax(self.out(output[0]))
         return output, hidden, attn_weights
 
     def initHidden(self):
-        # result = Variable(torch.zeros(1, 1, self.hidden_size))
-        result = (Variable(torch.zeros(1, 1, self.hidden_size)), \
-                  Variable(torch.zeros(1, 1, self.hidden_size)))
+        result = Variable(torch.zeros(1, 1, self.hidden_size))
+        # result = (Variable(torch.zeros(1, 1, self.hidden_size)), \
+        #          Variable(torch.zeros(1, 1, self.hidden_size)))
         if use_cuda:
-            # return result.cuda()
-            return (result[0].cuda(), result[1].cuda())
+            return result.cuda()
+            # return (result[0].cuda(), result[1].cuda())
         else:
             return result
 
@@ -405,13 +392,14 @@ class AttnDecoderRNN(nn.Module):
 #
 
 def indexesFromSentence(lang, sentence):
-    indexes = []
-    for word in sentence.split(' '):
-        try:
-            indexes.append(lang.word2index[word])    
-        except:
-            pass
-    return indexes
+    return [lang.word2index[word] for word in sentence.split(' ')]
+    # indexes = []
+    # for word in sentence.split(' '):
+    #    try:
+    #        indexes.append(lang.word2index[word])    
+    #    except:
+    #        pass
+    # return indexes
 
 def variableFromSentence(lang, sentence):
     indexes = indexesFromSentence(lang, sentence)
@@ -456,7 +444,8 @@ def variablesFromPair(lang_informal, lang_formal, pair):
 # ``teacher_forcing_ratio`` up to use more of it.
 #
 
-teacher_forcing_ratio = 0.5
+#teacher_forcing_ratio = 0.1
+teacher_forcing_ratio = 0
 
 def train(input_variable, target_variable, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion, max_length, hidden_size):
     encoder_hidden = encoder.initHidden()
@@ -550,7 +539,7 @@ def timeSince(since, percent):
 # of examples, time so far, estimated time) and average loss.
 #
 
-def trainIters(lang_informal, lang_formal, pairs, encoder, decoder, max_sent_len, hidden_size, n_iters, print_every=1000, plot_every=100, learning_rate=0.01):
+def trainIters(lang_informal, lang_formal, pairs, encoder, decoder, max_sent_len, hidden_size, n_iters, output_file, print_every=1000, plot_every=100, learning_rate=0.01):
     start = time.time()
     plot_losses = []
     print_loss_total = 0  # Reset every print_every
@@ -577,7 +566,7 @@ def trainIters(lang_informal, lang_formal, pairs, encoder, decoder, max_sent_len
             print_loss_total = 0
             print('%s (%d %d%%) %.4f' % (timeSince(start, iter / n_iters),
                                          iter, iter / n_iters * 100, print_loss_avg))
-            # evaluateRandomly(lang_informal, lang_formal, pairs, encoder, decoder, max_sent_len)
+            evaluateRandomly(lang_informal, lang_formal, pairs, encoder, decoder, output_file, max_sent_len)
 
         if iter % plot_every == 0:
             plot_loss_avg = plot_loss_total / plot_every
@@ -663,15 +652,14 @@ def evaluate(lang_informal, lang_formal, encoder, decoder, sentence, max_length)
 # input, target, and output to make some subjective quality judgements:
 #
 
-def evaluateRandomly(lang_informal, lang_formal, pairs, encoder, decoder, max_sent_len, n=25):
+def evaluateRandomly(lang_informal, lang_formal, pairs, encoder, decoder, output_file, max_sent_len, n=10):
     for i in range(n):
         pair = random.choice(pairs)
-        print('>', pair[0])
-        print('=', pair[1])
+        output_file.write('>' + pair[0]+'\n')
+        output_file.write('=' + pair[1]+'\n')
         output_words, attentions = evaluate(lang_informal, lang_formal, encoder, decoder, pair[0], max_sent_len)
         output_sentence = ' '.join(output_words)
-        print('<', output_sentence)
-        print('')
+        output_file.write('<' + output_sentence+'\n\n')
 
 def evaluateAndShowAttention(lang_informal, lang_formal, encoder1, attn_decoder1, input_sentence, max_sent_len):
     output_words, attentions = evaluate(lang_informal, lang_formal, encoder1, attn_decoder1, input_sentence, max_sent_len)
@@ -697,20 +685,18 @@ def evaluateAndShowAttention(lang_informal, lang_formal, encoder1, attn_decoder1
 #    encoder and decoder are initialized and run ``trainIters`` again.
 #
 def main(args):
-    if args.word2vec_pretrained_model:
-        word2vec_model = gensim.models.KeyedVectors.load_word2vec_format(args.word2vec_pretrained_model, binary=True)
-    else:
-        word2vec_model = None
-    lang_informal, lang_formal, pairs = prepareData(args.informal_file, args.formal_file, word2vec_model, args.hidden_size, args.max_sent_len)
+    lang_informal, lang_formal, pairs = prepareData(args.informal_file, args.formal_file, args.hidden_size, args.max_sent_len)
     print(random.choice(pairs))
-    encoder1 = EncoderRNN(lang_informal.n_words, args.hidden_size, np.array(lang_informal.wordEmbeddings), n_layers=5)
-    attn_decoder1 = AttnDecoderRNN(args.hidden_size, lang_formal.n_words, args.max_sent_len, 5, dropout_p=0.1)
+    encoder1 = EncoderRNN(lang_informal.n_words, args.hidden_size, n_layers=1)
+    attn_decoder1 = AttnDecoderRNN(args.hidden_size, lang_formal.n_words, args.max_sent_len, 1, dropout_p=0.1)
     if use_cuda:
         encoder1 = encoder1.cuda()
         attn_decoder1 = attn_decoder1.cuda()
+    output_file = open(args.output_file, 'w')
     # trainIters(lang_informal, lang_formal, pairs, encoder1, attn_decoder1, args.max_sent_len, args.hidden_size, 20, print_every=1)
-    trainIters(lang_informal, lang_formal, pairs, encoder1, attn_decoder1, args.max_sent_len, args.hidden_size, 100000, print_every=5000)
-    evaluateRandomly(lang_informal, lang_formal, pairs, encoder1, attn_decoder1, args.max_sent_len)
+    trainIters(lang_informal, lang_formal, pairs, encoder1, attn_decoder1, args.max_sent_len, args.hidden_size, 100000, output_file, print_every=5000)
+    # trainIters(lang_informal, lang_formal, pairs, encoder1, attn_decoder1, args.max_sent_len, args.hidden_size, 75000, print_every=5000)
+    evaluateRandomly(lang_informal, lang_formal, pairs, encoder1, attn_decoder1, output_file, args.max_sent_len, 100)
 
     if args.informal_test_file:
         informal_test = open(args.informal_test_file, 'r')
@@ -723,7 +709,7 @@ if __name__ == "__main__":
     argparser.add_argument("--informal_file", type = str)
     argparser.add_argument("--formal_file", type = str)
     argparser.add_argument("--informal_test_file", type = str)
-    argparser.add_argument("--word2vec_pretrained_model", type = str)
+    argparser.add_argument("--output_file", type = str)
     argparser.add_argument("--max_sent_len", type = int, default=30)
     argparser.add_argument("--hidden_size", type=int, default=500)
     args = argparser.parse_args()

@@ -871,10 +871,11 @@ def main(args):
     evaluateGeneratorRandomly(lang, pairs, encoder1, attn_decoder1, args.max_sent_len)
     evaluateDiscriminatorRandomly(pairs, classifier)
 
-    informal_test = open(args.informal_test_file, 'r')
-    for line in informal_test.readlines():
-        sent = line.strip('\n').strip()    
-        evaluateAndShowAttention(lang, encoder1, attn_decoder1, sent, args.max_sent_len)
+    if args.informal_test_file:
+        informal_test = open(args.informal_test_file, 'r')
+        for line in informal_test.readlines():
+            sent = line.strip('\n').strip()    
+            evaluateAndShowAttention(lang, encoder1, attn_decoder1, sent, args.max_sent_len)
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser(sys.argv[0])

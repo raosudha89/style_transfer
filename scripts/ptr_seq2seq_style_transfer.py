@@ -407,14 +407,25 @@ class PtrAttnDecoderRNN(nn.Module):
         p_copy = torch.mul(attn_weights, (1-p_gen).repeat(1, self.max_length))
         
         # extend the vocab vocab_size+max_length
-        p_extended_vocab = torch.cat((p_vocab, Variable(torch.zeros(1, self.max_length))), 1)
+        p_zeros = Variable(torch.zeros(1, self.max_length))
+        if use_cuda:
+            p_zeros = p_zeros.cuda()
+        p_extended_vocab = torch.cat((p_vocab, p_zeros), 1)
         
         # extend the copy to vocab_size+max_length
-        p_extended_copy = torch.cat((Variable(torch.zeros(1, self.vocab_size)), p_copy), 1)
+        p_zeros = Variable(torch.zeros(1, self.vocab_size))
+        if use_cuda:
+            p_zeros = p_zeros.cuda()
+        p_extended_copy = torch.cat((p_zeros, p_copy), 1)
         
+        if len(input_variable) >= self.max_length:
+            input_extended = torch.transpose(input_variable, 0, 1)
         # extend the input to max_length
-        input_zeros = Variable(torch.zeros(1, self.max_length - len(input_variable))).long()
-        input_extended = torch.cat((torch.transpose(input_variable, 0, 1), input_zeros), 1)
+        else:
+            input_zeros = Variable(torch.zeros(1, self.max_length - len(input_variable))).long()
+            if use_cuda:
+                input_zeros = input_zeros.cuda()
+            input_extended = torch.cat((torch.transpose(input_variable, 0, 1), input_zeros), 1)
         
         # Project the values in the copy distributions onto the appropriate entries in the final distributions
         # This means that if a_i = 0.1 and the ith encoder word is w, and w has index 500 in the vocabulary,
@@ -798,8 +809,9 @@ def main(args):
     if use_cuda:
         encoder1 = encoder1.cuda()
         attn_decoder1 = attn_decoder1.cuda()
-    trainIters(lang, pairs, encoder1, attn_decoder1, args.max_sent_len, args.hidden_size, 10, print_every=1)
-    # trainIters(lang, pairs, encoder1, attn_decoder1, args.max_sent_len, args.hidden_size, 100000, print_every=5000)
+    # trainIters(lang, pairs, encoder1, attn_decoder1, args.max_sent_len, args.hidden_size, 10, print_every=1)
+    trainIters(lang, pairs, encoder1, attn_decoder1, args.max_sent_len, args.hidden_size, 100000, print_every=5000)
+    # trainIters(lang, pairs, encoder1, attn_decoder1, args.max_sent_len, args.hidden_size, 1000, print_every=50)
     evaluateRandomly(lang, pairs, encoder1, attn_decoder1, args.max_sent_len)
 
     informal_test = open(args.informal_test_file, 'r')
